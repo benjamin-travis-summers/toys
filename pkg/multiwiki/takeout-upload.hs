@@ -9,11 +9,12 @@
 {-# LANGUAGE TypeOperators #-}
 
 import ClassyPrelude
-import Control.Lens    as Lens
+import Control.Lens    as Lens hiding ((<.>))
 import Web.Scotty      as S
 
-import System.FilePath ((</>))
+import System.FilePath ((</>), (<.>))
 
+import qualified Prelude
 import qualified Network.Wai.Middleware.RequestLogger as Wai
 import qualified Network.Wai.Middleware.Static        as Wai
 import qualified Network.Wai.Parse                    as Wai
@@ -31,35 +32,64 @@ mkDir path = do
   pure path
 
 main ∷ IO ()
-main = scotty 3000 $ do
-  get "/" $ do
-    html $ mconcat
-      [ "<!DOCTYPE html>"
-      , "<html>"
-      , "<body>"
-      , ""
-      , "<form action=\"./upload\" method=\"post\" enctype=\"multipart/form-data\">"
-      , "    Select tarball to upload:"
-      , "    <input type=\"file\" name=\"fileToUpload\" id=\"fileToUpload\">"
-      , "    <input type=\"submit\" value=\"Upload Tarball\" name=\"submit\">"
-      , "</form>"
-      , ""
-      , "</body>"
-      , "</html>"
-      ]
+main = do
+  args <- getArgs
 
-  post "/upload" $ do
-    fs <- files
+  let port = args & \case [port] → Prelude.read (unpack port)
+                          []     → 3000
 
-    let fs' = do (fieldName, fi) <- fs
-                 pure (fieldName, BS.unpack (Wai.fileName fi), Wai.fileContent fi)
+  scotty port $ do
+    get "/" $ do
+      html $ mconcat
+        [ "<!DOCTYPE html>"
+        , "<html>"
+        , "<body>"
+        , ""
+        , "<a href=\"./wiki\">See wiki documents.</a>"
+        , ""
+        , "<br />"
+        , ""
+        , "<form action=\"./upload\" method=\"post\" enctype=\"multipart/form-data\">"
+        , "    Select tarball to upload:"
+        , "    <input type=\"file\" name=\"fileToUpload\" id=\"fileToUpload\">"
+        , "    <br />"
+        , "    <input type=\"submit\" value=\"Upload Tarball\" name=\"submit\">"
+        , "</form>"
+        , ""
+        , "</body>"
+        , "</html>"
+        ]
 
-    io $ mkDir "./takeout-tarballs"
+    get "/wiki/" $ do
+      let docNames = [ "AnnabelleLane"
+                     , "ConorLondon"
+                     , "KeepNoteAboutPizzaX"
+                     , "OldSimpleTextWidgetContents"
+                     , "TestNote"
+                     ]
 
-    io $ do
-      for_ fs' $ \(_, fn, fc) → do
-        let tarballFile = "./takeout-tarballs/" </> fn
-        B.writeFile tarballFile fc
-        Sys.callProcess "./mkwiki.sh" ["./takeout-tarballs", tarballFile]
+      let wikiDoc nm = "<li><a href=\"" <> nm <> "\">" <> nm <> "</a></li>"
 
-    html "<h1>File uploaded and processed</h1>"
+      html $ mconcat (["<ul>"] <> (wikiDoc <$> docNames) <> ["</ul>"])
+
+
+    get "/wiki/:doc" $ do
+      docName <- param "doc"
+      setHeader "Content-Type" "text/html"
+      file ("./out/wiki/" </> docName <.> ".html")
+
+    post "/upload" $ do
+      fs <- files
+
+      let fs' = do (fieldName, fi) <- fs
+                   pure (fieldName, BS.unpack (Wai.fileName fi), Wai.fileContent fi)
+
+      io $ mkDir "./takeout-tarballs"
+
+      io $ do
+        for_ fs' $ \(_, fn, fc) → do
+          let tarballFile = "./takeout-tarballs/" </> fn
+          B.writeFile tarballFile fc
+          Sys.callProcess "./runme.sh" [tarballFile]
+
+      html "<h1>File uploaded and processed</h1>"
