@@ -1,0 +1,4 @@
+resolver: lts-9.14
+packages:
+  - ./pkg/cs1010-lab1-hs
+  - ./pkg/turkish

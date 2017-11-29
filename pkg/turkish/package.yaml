@@ -1,0 +1,18 @@
+name:                turkish
+version:             0.1.0.0
+license:             AGPL-3
+author:              Benjamin Summers
+maintainer:          github@bsummers.me
+copyright:           2017 Benjamin SUmmers
+category:            Web
+
+executable:
+  source-dirs:      .
+  main:             turkish.hs
+
+dependencies:
+  - base
+  - MissingH
+  - haskeline
+  - random-shuffle
+  - tabular

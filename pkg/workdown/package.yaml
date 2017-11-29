@@ -1,0 +1,15 @@
+name:                workdown
+version:             0.1.0.0
+license:             AGPL-3
+author:              Benjamin Summers
+maintainer:          github@bsummers.me
+copyright:           2017 Benjamin SUmmers
+category:            Web
+
+dependencies:
+  - base
+  - foundation
+
+executable:
+  source-dirs:      .
+  main:             workdown
