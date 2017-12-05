@@ -22,6 +22,7 @@ import qualified System.Directory                     as Sys
 import qualified Data.ByteString.Lazy                 as B
 import qualified Data.ByteString.Char8                as BS
 import qualified System.Process                       as Sys
+import qualified Database.SQLite.Simple               as Sql
 
 io = liftIO
 
@@ -61,16 +62,16 @@ main = do
         ]
 
     get "/wiki/" $ do
-      let docNames = [ "AnnabelleLane"
-                     , "ConorLondon"
-                     , "KeepNoteAboutPizzaX"
-                     , "OldSimpleTextWidgetContents"
-                     , "TestNote"
-                     ]
+      namedDocs <- io $ do
+          conn     <- Sql.open "./out/docs.sqlite"
+          titles   <- Sql.query_ conn "SELECT doc, title from title"            :: IO [(Text, Text)]
+          rawnotes <- Sql.query_ conn "SELECT doc, filename from orig_filename" :: IO [(Text, Text)]
+          Sql.close conn
+          pure (titles <> rawnotes)
 
-      let wikiDoc nm = "<li><a href=\"" <> nm <> "\">" <> nm <> "</a></li>"
+      let wikiDoc (_hash, nm) = "<li><a href=\"wiki/" <> nm <> "\">" <> nm <> "</a></li>"
 
-      html $ mconcat (["<ul>"] <> (wikiDoc <$> docNames) <> ["</ul>"])
+      html $ fromStrict $ mconcat (["<ul>"] <> (wikiDoc <$> namedDocs) <> ["</ul>"])
 
 
     get "/wiki/:doc" $ do
