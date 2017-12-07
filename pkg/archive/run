@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+exedir="$(dirname "$(realpath "$0")")"
+
+depsfile="$exedir/deps.dhall"
+
+eval "$(dhall-to-bash --declare deps <"$depsfile")"
+
+depargs=$(for x in ${deps[@]}
+          do echo -p
+             echo "$x"
+          done
+         )
+
+nix-shell                                  \
+  $depargs                                 \
+  --run "bash '$exedir/archive.sh' $@"
