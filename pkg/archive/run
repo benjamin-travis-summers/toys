@@ -14,4 +14,4 @@ depargs=$(for x in ${deps[@]}
 
 nix-shell                                  \
   $depargs                                 \
-  --run "bash '$exedir/archive.sh' $@"
+  --run "bash '$exedir/archive.sh' '$1'"

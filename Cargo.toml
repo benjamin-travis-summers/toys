@@ -1,5 +1,0 @@
-[workspace]
-members = [ "pkg/cs1010-lab1-rs" ]
-
-[dependencies]
-cs1010-lab1-rs = { path = "pkg/cs1010-lab1-rs" }

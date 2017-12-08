@@ -8,8 +8,11 @@ category:            Web
 
 dependencies:
   - base
+  - classy-prelude
+  - containers
   - foundation
+  - lens
 
 executable:
   source-dirs:      .
-  main:             workdown
+  main:             workdown.hs
