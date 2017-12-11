@@ -9,7 +9,9 @@ cleanConfig:
 	rm -f Cargo.lock Cargo.toml stack.yaml default.nix
 
 clean: cleanConfig
-	rm -rf .stack-work pkg/*/.stack-work
+	rm -rf .stack-work
+	rm -rf pkg/*/.stack-work
+	rm -f pkg/*/*.cabal
 
 ##############################################################################################################
 

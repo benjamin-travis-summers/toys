@@ -19,3 +19,6 @@ type Workflowy = RoseTree.Forest (Text, Maybe Text)
 
 parse :: Text -> Either Text Workflowy
 parse = undefined
+
+main :: IO ()
+main = pure ()
