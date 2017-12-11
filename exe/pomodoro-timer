@@ -2,6 +2,8 @@
 
 --------------------------------------------------------------------------------------------------------------
 
+import Prelude (read)
+import System.Directory
 import Data.Tree as RoseTree
 import Text.Printf
 import Data.Time.Clock
@@ -26,11 +28,17 @@ sleepUntil (wakeUpAt :: UTCTime) = do
 diffTimeToNominalDiffTime = (fromRational . toRational) ∷ DiffTime -> NominalDiffTime
 
 main = do
+  duration ← getArgs <&> \case []  → 50
+                               [n] → read (unpack n)
+
   startTime <- getCurrentTime
 
-  let endTime = addUTCTime (diffTimeToNominalDiffTime (minutesToDiffTime 50)) startTime
+  let endTime = addUTCTime (diffTimeToNominalDiffTime (minutesToDiffTime duration)) startTime
 
   putStrLn (tshow startTime <> " -> " <> tshow endTime)
+
+  home <- getHomeDirectory
+  let outfile = home </> "POMODORO"
 
   let loop now = do
         let nextTick = addUTCTime (diffTimeToNominalDiffTime (secondsToDiffTime 1)) now
@@ -40,10 +48,12 @@ main = do
         let timeLeft = endTime `diffUTCTime` now :: NominalDiffTime
         let secsLeft = truncate timeLeft :: Integer
         let secs = secsLeft `mod` 60
-            mins = secsLeft `div` 60
+        let mins = secsLeft `div` 60
 
-        writeFileUtf8 "/home/benjamin/POMODORO" (pack (printf "%02d:%02d" mins secs))
-        sleepUntil nextTick
-        loop nextTick
+        writeFileUtf8 outfile (pack (printf "%02d:%02d" mins secs))
+
+        when (secsLeft > 0) $ do
+          sleepUntil nextTick
+          loop nextTick
 
   loop startTime
