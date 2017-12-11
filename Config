@@ -1,5 +1,5 @@
     let opts =
-          { haskellPkgs   = [ "cs1010-lab1-hs", "workdown", "turkish", "pomo" ]
+          { haskellPkgs   = [ "cs1010-lab1-hs", "workdown", "turkish" ]
           , rustPkgs      = [ "cs1010-lab1-rs" ]
           , stackResolver = "lts-9.14"
           , buildDeps     = [ "dhall-text", "dhall", "cargo", "stack" ]

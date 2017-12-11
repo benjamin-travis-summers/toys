@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+set -ex
+
+lts=9.14
+script=$1
+
+test -n "$script"
+
+shift 1
+
+tmp=$(mktemp ./XXXXXX.hs)
+
+cat >$tmp <<EOF
+#!/usr/bin/env stack
+
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
+import ClassyPrelude
+import Control.Lens
+
+EOF
+
+cat "$script" >> "$tmp"
+
+echo $tmp
+stack script --resolver=lts-$lts "$tmp" "$@"

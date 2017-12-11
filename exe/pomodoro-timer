@@ -1,26 +1,18 @@
-#!/usr/bin/env stack
--- stack script --resolver lts-9.13
-
-{-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeApplications  #-}
-{-# LANGUAGE UnicodeSyntax     #-}
-{-# LANGUAGE FlexibleContexts  #-}
+#!/usr/bin/env haskellscript-9.14
 
 --------------------------------------------------------------------------------------------------------------
 
-import ClassyPrelude
-import Control.Lens
 import Data.Tree as RoseTree
 import Text.Printf
 import Data.Time.Clock
+
+--------------------------------------------------------------------------------------------------------------
 
 minutesToDiffTime m = secondsToDiffTime (60 * m)
 
 diffTimeToMicroseconds t = diffTimeToPicoseconds t `div` 1000000
 
-sleepUntil :: UTCTime -> IO ()
-sleepUntil wakeUpAt = do
+sleepUntil (wakeUpAt :: UTCTime) = do
   now <- getCurrentTime
 
   let nominalDiff = wakeUpAt `diffUTCTime` now
@@ -31,10 +23,8 @@ sleepUntil wakeUpAt = do
     putStrLn ("sleeping for " <> tshow us)
     threadDelay us
 
-diffTimeToNominalDiffTime :: DiffTime -> NominalDiffTime
-diffTimeToNominalDiffTime = fromRational . toRational
+diffTimeToNominalDiffTime = (fromRational . toRational) ∷ DiffTime -> NominalDiffTime
 
-main ∷ IO ()
 main = do
   startTime <- getCurrentTime
 
