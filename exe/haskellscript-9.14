@@ -12,8 +12,6 @@ shift 1
 tmp=$(mktemp ./XXXXXX.hs)
 
 cat >$tmp <<EOF
-#!/usr/bin/env stack
-
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UnicodeSyntax #-}
@@ -22,8 +20,14 @@ cat >$tmp <<EOF
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-import ClassyPrelude
-import Control.Lens
+import HaskellScript
+
+import qualified ClassyPrelude
+import qualified Control.Lens as Lens
+import qualified Turtle
+import qualified Prelude
+
+--------------------------------------------------------------------------------
 
 EOF
 

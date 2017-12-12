@@ -1,56 +1,30 @@
 #!/usr/bin/env haskellscript-9.14
 
---------------------------------------------------------------------------------------------------------------
-
-import Prelude (read)
-import System.Directory
-import Data.Tree as RoseTree
-import Text.Printf
-import Data.Time.Clock
-
---------------------------------------------------------------------------------------------------------------
-
-minutesToDiffTime m = secondsToDiffTime (60 * m)
-
-diffTimeToMicroseconds t = diffTimeToPicoseconds t `div` 1000000
-
-sleepUntil (wakeUpAt :: UTCTime) = do
-  now <- getCurrentTime
-
-  let nominalDiff = wakeUpAt `diffUTCTime` now
-  let diff        = fromRational @DiffTime (toRational nominalDiff)
-
-  when (diff >= 0) $ do
-    let us = fromIntegral (diffTimeToMicroseconds diff)
-    putStrLn ("sleeping for " <> tshow us)
-    threadDelay us
-
-diffTimeToNominalDiffTime = (fromRational . toRational) ∷ DiffTime -> NominalDiffTime
+import HaskellScript
 
 main = do
-  duration ← getArgs <&> \case []  → 50
-                               [n] → read (unpack n)
+  pomoMins ← getArgs <&> \case []  → 50
+                               [n] → fromIntegral (read n)
 
   startTime <- getCurrentTime
 
-  let endTime = addUTCTime (diffTimeToNominalDiffTime (minutesToDiffTime duration)) startTime
+  let endTime = addUTCTime (pomoMins * 60) startTime
 
-  putStrLn (tshow startTime <> " -> " <> tshow endTime)
+  putStrLn (show startTime <> " -> " <> show endTime)
 
-  home <- getHomeDirectory
-  let outfile = home </> "POMODORO"
+  outfile <- (</> "POMODORO") <$> getHomeDirectory
 
-  let loop now = do
-        let nextTick = addUTCTime (diffTimeToNominalDiffTime (secondsToDiffTime 1)) now
+  let loop curTime = do
+        let nextTick = addUTCTime 1 curTime
 
-        putStrLn (tshow now <> " -> " <> tshow nextTick)
+        putStrLn (show curTime <> " -> " <> show nextTick)
 
-        let timeLeft = endTime `diffUTCTime` now :: NominalDiffTime
+        let timeLeft = endTime `diffUTCTime` curTime
         let secsLeft = truncate timeLeft :: Integer
-        let secs = secsLeft `mod` 60
-        let mins = secsLeft `div` 60
+        let secs     = secsLeft `mod` 60
+        let mins     = secsLeft `div` 60
 
-        writeFileUtf8 outfile (pack (printf "%02d:%02d" mins secs))
+        writeFileUtf8 outfile $ pack (printf "%02d:%02d" mins secs)
 
         when (secsLeft > 0) $ do
           sleepUntil nextTick
