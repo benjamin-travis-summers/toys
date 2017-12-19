@@ -2,7 +2,7 @@
 
 set -ex
 
-lts=9.14
+lts=10.0
 script=$1
 
 test -n "$script"
@@ -19,9 +19,10 @@ cat >$tmp <<EOF
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -fdefer-type-errors #-}
+{-# OPTIONS_GHC -Wdeferred-out-of-scope-variables #-}
 
-import HaskellScript
-
+import qualified HaskellScript
 import qualified ClassyPrelude
 import qualified Control.Lens as Lens
 import qualified Turtle
@@ -35,3 +36,4 @@ cat "$script" >> "$tmp"
 
 echo $tmp
 stack script --resolver=lts-$lts "$tmp" "$@"
+rm $tmp

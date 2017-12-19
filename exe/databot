@@ -1,0 +1,96 @@
+#!/usr/bin/env haskellscript-10.0
+
+import HaskellScript hiding (Parser)
+import Data.Time.Clock
+import System.Directory
+import Control.Exception.Lens
+import System.IO.Error.Lens
+
+import qualified Text.Megaparsec      as P
+import qualified Text.Megaparsec.Char as P
+
+-- TODO Handle EOF errors
+interactLines ∷ (Text → IO ()) → IO ()
+interactLines action = do
+  handling (_IOException . errorType . _EOF) (\() → pure ()) loop
+ where
+  loop = do
+    line <- getLine
+    action line
+    loop
+
+data Datum = Classifier { key ∷ Text }
+           | HashTag    { tag ∷ Text }
+           | Record     { key ∷ Text, body ∷ Text }
+  deriving (Show, Read)
+
+data Query = FindRecord Text
+           | FindHashTag Text
+
+data DB = DB !(IORef [Datum])
+
+type Parser = P.Parsec Char Text
+
+parseDatum ∷ Parser Datum
+parseDatum = do
+  _prefix <- P.oneOf ['.'] -- TODO Other prefixes!
+  tag     <- (pack ∷ String → Text) <$> P.some P.alphaNumChar
+  _       <- P.char '('
+  payload <- P.takeWhileP Nothing (/= ')')
+  _       <- P.char ')'
+  pure (Record tag payload)
+
+parseDatumFromSoup ∷ Parser Datum
+parseDatumFromSoup =
+  parseDatum <|> (P.anyChar >> parseDatumFromSoup)
+
+parseDatums ∷ Parser [Datum]
+parseDatums = P.many parseDatumFromSoup
+
+softParse ∷ Text → [Datum]
+softParse text = fromMaybe [] (P.parseMaybe parseDatums text)
+
+parseQuery ∷ Text → Maybe Query
+parseQuery t = unpack t & \case
+  ('?' : key) → Just $ FindRecord  $ pack (key ∷ [Char])
+  ('#' : tag) → Just $ FindHashTag $ pack (tag ∷ [Char])
+  _           → Nothing
+
+datumMatches ∷ Query → Datum → Bool
+datumMatches (FindRecord t1)  (Record t2 _)   | t1==t2 = True
+datumMatches (FindRecord t1)  (Classifier t2) | t1==t2 = True
+datumMatches (FindHashTag t1) (HashTag t2)    | t1==t2 = True
+datumMatches _                 _                       = False
+
+queryDB ∷ DB → Query → IO [Datum]
+queryDB (DB dbRef) q = do
+  dbDatums ← readIORef dbRef
+  pure (filter (datumMatches q) dbDatums)
+
+dbFile ∷ FilePath
+dbFile = "/home/benjamin/databot.db"
+
+storeDatum ∷ DB → Text → Datum → IO ()
+storeDatum (DB dbRef) _fullMsgText datum = do
+  dbDatums <- readIORef dbRef
+  let newDatums = dbDatums <> [datum]
+  writeFileUtf8 dbFile (show newDatums)
+  writeIORef dbRef newDatums
+
+loadDB ∷ IO DB
+loadDB = do
+  datums <- read <$> readFileUtf8 dbFile
+  DB <$> newIORef datums
+
+main ∷ IO ()
+main = do
+  db ← loadDB
+  interactLines (react db)
+
+react ∷ DB → Text → IO ()
+react db msgText = do
+  parseQuery msgText & \case
+    Nothing → for_ (softParse msgText) $ \d →
+                storeDatum db msgText d
+    Just q  → do result ← queryDB db q
+                 print result

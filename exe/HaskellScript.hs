@@ -22,7 +22,7 @@ module HaskellScript
 import ClassyPrelude hiding (show, tshow)
 import Control.Lens hiding (Index, (<.>), snoc, (<|), index, uncons, unsnoc, cons)
 import Turtle       hiding ((<>), FilePath, stderr, stdin, stdout, (<.>), (</>), fork, fold, stripPrefix,
-                            find, strict, view, noneOf, has, Fold, snoc, contains, printf)
+                            find, strict, view, noneOf, has, Fold, snoc, contains, printf, sort, sortBy, sortOn)
 import Data.Time.Clock
 import Text.Printf
 
@@ -50,6 +50,5 @@ sleepUntil wakeUpTime = do
   let diff = wakeUpTime `diffUTCTime` now
 
   when (diff >= 0) $ do
-    let us = fromIntegral $ truncate (diff * 1000000)
-    putStrLn ("sleeping for " <> show us)
-    threadDelay us
+    let microsecs = truncate (diff * 1000000)
+    threadDelay (fromIntegral microsecs)

@@ -1,4 +1,4 @@
-#!/usr/bin/env haskellscript-9.14
+#!/usr/bin/env haskellscript-10.0
 
 import HaskellScript
 
@@ -10,14 +10,14 @@ main = do
 
   let endTime = addUTCTime (pomoMins * 60) startTime
 
-  putStrLn (show startTime <> " -> " <> show endTime)
+  -- putStrLn (show startTime <> " -> " <> show endTime)
 
   outfile <- (</> "POMODORO") <$> getHomeDirectory
 
   let loop curTime = do
         let nextTick = addUTCTime 1 curTime
 
-        putStrLn (show curTime <> " -> " <> show nextTick)
+        -- putStrLn (show curTime <> " -> " <> show nextTick)
 
         let timeLeft = endTime `diffUTCTime` curTime
         let secsLeft = truncate timeLeft :: Integer
