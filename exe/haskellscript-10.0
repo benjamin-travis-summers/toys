@@ -16,17 +16,24 @@ cat >$tmp <<EOF
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# OPTIONS_GHC -fdefer-type-errors #-}
 {-# OPTIONS_GHC -Wdeferred-out-of-scope-variables #-}
 
 import qualified HaskellScript
 import qualified ClassyPrelude
 import qualified Control.Lens as Lens
-import qualified Turtle
+import qualified Data.Time as Time
 import qualified Prelude
+import qualified System.Directory as Sys
+import qualified Text.Printf as Printf
+import qualified Turtle
 
 --------------------------------------------------------------------------------
 

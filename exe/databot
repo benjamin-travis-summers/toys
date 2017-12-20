@@ -5,14 +5,17 @@ import Data.Time.Clock
 import System.Directory
 import Control.Exception.Lens
 import System.IO.Error.Lens
+import Control.DeepSeq
+import Control.Exception
 
-import qualified Text.Megaparsec      as P
-import qualified Text.Megaparsec.Char as P
+import qualified Text.Regex.PCRE.Heavy as Regex
+import qualified Text.Megaparsec       as P
+import qualified Text.Megaparsec.Char  as P
 
 -- TODO Handle EOF errors
 interactLines ∷ (Text → IO ()) → IO ()
 interactLines action = do
-  handling (_IOException . errorType . _EOF) (\() → pure ()) loop
+  handling (_IOException . errorType . _EOF) (const $ pure ()) loop
  where
   loop = do
     line <- getLine
@@ -22,7 +25,7 @@ interactLines action = do
 data Datum = Classifier { key ∷ Text }
            | HashTag    { tag ∷ Text }
            | Record     { key ∷ Text, body ∷ Text }
-  deriving (Show, Read)
+  deriving (Show, Read, Generic, NFData)
 
 data Query = FindRecord Text
            | FindHashTag Text
@@ -40,15 +43,12 @@ parseDatum = do
   _       <- P.char ')'
   pure (Record tag payload)
 
-parseDatumFromSoup ∷ Parser Datum
-parseDatumFromSoup =
-  parseDatum <|> (P.anyChar >> parseDatumFromSoup)
-
-parseDatums ∷ Parser [Datum]
-parseDatums = P.many parseDatumFromSoup
-
 softParse ∷ Text → [Datum]
-softParse text = fromMaybe [] (P.parseMaybe parseDatums text)
+softParse text =
+  catMaybes (map (P.parseMaybe parseDatum) unparsedDatums)
+  where
+    unparsedDatums = map fst (Regex.scan datumRegex text)
+    datumRegex     = [Regex.re|\.[a-zA-Z0-9]+\([^()]*\)|]
 
 parseQuery ∷ Text → Maybe Query
 parseQuery t = unpack t & \case
@@ -80,6 +80,7 @@ storeDatum (DB dbRef) _fullMsgText datum = do
 loadDB ∷ IO DB
 loadDB = do
   datums <- read <$> readFileUtf8 dbFile
+  evaluate $ force datums
   DB <$> newIORef datums
 
 main ∷ IO ()
