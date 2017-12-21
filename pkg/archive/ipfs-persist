@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+
+set -e
+
+BUCKET=ipfs-archive-backups
+
+tmpfiles=""
+
+cleanup () {
+  for tmp in $tmpfiles
+  do rm -f $tmp
+  done
+}
+
+trap cleanup EXIT
+
+persist () {
+  block=$1
+  tmp="${block}.block"
+  tmpfiles="$tmpfiles $tmp"
+  ipfs block get "$block" >"$tmp"
+  /usr/bin/aws s3 cp "$tmp" "s3://$BUCKET/block/$block"
+  rm "$tmp"
+}
+
+persisttree () {
+  entry="$1"
+  persist "$entry"
+  s3pin "$entry"
+  for subblock in $(ipfs refs -r -u "$entry")
+  do persist "$subblock"
+  done
+}
+
+restore () {
+  block=$1
+  tmp="${block}.block"
+  tmpfiles="$tmpfiles $tmp"
+  /usr/bin/aws s3 cp "s3://$BUCKET/block/$block" "$tmp"
+  ipfs block put <"$tmp"
+  rm "$tmp"
+}
+
+# TODO This will do duplicate work if there are shared subtrees, but it wont
+# endlesslessly loop (unless someone found a hash cycle).
+restoretree () {
+  entry="$1"
+  restore "$entry"
+  for subblock in $(ipfs refs -u "$entry")
+  do restoretree "$subblock"
+  done
+}
+
+# TODO This will duplicate lots of work!
+persistall () {
+  for block in $(ipfs pin ls | sed 's/ .*//')
+  do persisttree "$block"
+  done
+}
+
+validipfsblock () {
+  [ Qm = "$(echo "$1" | sed 's/^\(..\).*$/\1/')" ]
+}
+
+# TODO Pin root blocks! Need a way to record in s3 which blocks were pinned or were roots.
+restoreall () {
+  for block in $(/usr/bin/aws s3 ls "s3://$BUCKET/block/")
+  do if validipfsblock "$block"
+     then echo restore "$block"
+          restore "$block"
+     fi
+  done
+
+  for pin in $(/usr/bin/aws s3 ls "s3://$BUCKET/pin/")
+  do if validipfsblock "$pin"
+     then echo ipfs pin add "$pin"
+          ipfs pin add "$pin"
+     fi
+  done
+}
+
+s3pin () {
+  block="$1"
+  echo $block > $block
+  tmpfiles="$tmpfiles $block"
+  /usr/bin/aws s3 cp $block "s3://ipfs-archive-backups/pin/$block"
+  rm $block
+}
+
+if [ "$#" = 1 ] && [ "$1" = all ]
+then persistall
+
+elif [ "$#" = 1 ] && [ "$1" = restoreall ]
+then restoreall
+
+else for x in "$@"
+     do persisttree "$x"
+     done
+
+fi
