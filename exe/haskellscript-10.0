@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-set -ex
-
 lts=10.0
 script=$1
 
@@ -34,6 +32,7 @@ import qualified Prelude
 import qualified System.Directory as Sys
 import qualified Text.Printf as Printf
 import qualified Turtle
+import qualified Control.DeepSeq
 
 --------------------------------------------------------------------------------
 
@@ -41,6 +40,8 @@ EOF
 
 cat "$script" >> "$tmp"
 
-echo $tmp
+cleanup () { rm $tmp; }
+
+trap cleanup EXIT
+
 stack script --resolver=lts-$lts "$tmp" "$@"
-rm $tmp

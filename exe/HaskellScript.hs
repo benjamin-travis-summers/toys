@@ -8,23 +8,37 @@
 
 module HaskellScript
   ( module ClassyPrelude
+  , module Control.DeepSeq
+  , module Control.Exception
+  , module Control.Exception.Lens
   , module Control.Lens
-  , module Turtle
-  , module Text.Printf
   , module Data.Time.Clock
   , module System.Directory
+  , module System.IO.Error.Lens
+  , module Text.Printf
+  , module Turtle
   , read, show
   , sleepUntil
   ) where
 
 --------------------------------------------------------------------------------------------------------------
 
-import ClassyPrelude hiding (show, tshow)
-import Control.Lens hiding (Index, (<.>), snoc, (<|), index, uncons, unsnoc, cons)
-import Turtle       hiding ((<>), FilePath, stderr, stdin, stdout, (<.>), (</>), fork, fold, stripPrefix,
-                            find, strict, view, noneOf, has, Fold, snoc, contains, printf, sort, sortBy, sortOn)
+import ClassyPrelude
+  hiding (show, tshow, handle)
+import Control.Lens
+  hiding (Index, (<.>), snoc, (<|), index, uncons, unsnoc, cons)
+import Turtle
+  hiding ((<>), FilePath, stderr, stdin, stdout, (<.>), (</>), fork, fold, stripPrefix, find, strict, view,
+          noneOf, has, Fold, snoc, contains, printf, sort, sortBy, sortOn, Parser)
+import System.Directory
+  hiding (readable, writable, executable, isSymbolicLink, Permissions)
 import Data.Time.Clock
 import Text.Printf
+import Data.Time.Clock
+import Control.Exception.Lens
+import System.IO.Error.Lens
+import Control.DeepSeq
+import Control.Exception (evaluate)
 
 import System.Directory (getHomeDirectory)
 

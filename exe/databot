@@ -1,12 +1,6 @@
 #!/usr/bin/env haskellscript-10.0
 
-import HaskellScript hiding (Parser)
-import Data.Time.Clock
-import System.Directory
-import Control.Exception.Lens
-import System.IO.Error.Lens
-import Control.DeepSeq
-import Control.Exception
+import HaskellScript
 
 import qualified Text.Regex.PCRE.Heavy as Regex
 import qualified Text.Megaparsec       as P
