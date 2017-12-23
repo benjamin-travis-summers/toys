@@ -1,3 +1,6 @@
 target
 .stack-work
 *.cabal
+Cargo.toml
+stack.yaml
+default.nix

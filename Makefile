@@ -1,8 +1,10 @@
-.PHONY: all clean cleanConfig
+.PHONY: all clean cleanConfig config
 
-all: Cargo.toml stack.yaml default.nix
+all: config
 	stack build
 	cargo build
+
+config: Cargo.toml stack.yaml default.nix
 
 cleanConfig:
 	rm -rf ./target
