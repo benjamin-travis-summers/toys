@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+set -e
+
+[ $# -eq 2 ]
+
+roothash="$1"
+newpdf="$2"
+filename="$(basename "$newpdf")"
+
+newhash="$(ipfs add "$newpdf" | sed 's/added \([^ ]*\) .*/\1/')"
+ipfs object patch add-link "$roothash" "$filename" "$newhash"
