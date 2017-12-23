@@ -3,14 +3,13 @@
 module Web.Tumblr.Types where
 
 import Data.Aeson
+import Data.Maybe
 import Control.Applicative ((<$>), (<*>), empty, pure)
 
 import Data.Time           (UTCTime,ZonedTime)
 import Data.Time.Format    (parseTime, defaultTimeLocale)
 import Data.Time.LocalTime (zonedTimeToUTC)
 import Control.Monad.Trans.Control
-
--- for reference, visit http://www.tumblr.com/docs/en/api/v2
 
 data BlogInfo = BlogInfo
                 { blogInfoTitle :: String
@@ -24,17 +23,17 @@ data BlogInfo = BlogInfo
                 , blogInfoLikes :: Int } deriving (Show, Eq)
 
 instance FromJSON BlogInfo where
-  parseJSON (Object w) = (w .: "blog") >>= \v ->
-                         BlogInfo <$>
-                         v .: "title" <*>
-                         v .: "posts" <*>
-                         v .: "name" <*>
-                         v .: "url" <*>
-                         v .: "updated" <*>
-                         v .: "description" <*>
-                         v .: "ask" <*>
-                         v .: "ask_anon" <*>
-                         v .: "likes"
+  parseJSON (Object w) =
+    (w .: "blog") >>= \v ->
+     BlogInfo <$> v .: "title" <*>
+                  v .: "posts" <*>
+                  v .: "name" <*>
+                  v .: "url" <*>
+                  v .: "updated" <*>
+                  v .: "description" <*>
+                  v .: "ask" <*>
+                  v .: "ask_anon" <*>
+                  (fromMaybe 0 <$> v .:? "likes")
   parseJSON _ = empty
 
 

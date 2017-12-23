@@ -7,12 +7,18 @@ copyright:           2017 Benjamin SUmmers
 category:            Web
 
 dependencies:
+  - aeson
+  - authenticate-oauth
   - base
   - classy-prelude
   - containers
   - foundation
+  - http-client
+  - http-conduit
   - humblr
   - lens
+  - lens-aeson
+  - resourcet
 
 executable:
   source-dirs:      .
