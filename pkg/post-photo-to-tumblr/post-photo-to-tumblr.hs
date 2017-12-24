@@ -18,6 +18,7 @@ import Web.Authenticate.OAuth
 import Network.HTTP.Client
 
 import qualified Network.HTTP.Conduit as NetConduit
+import           Web.Tumblr (tumblrOAuth)
 import qualified Web.Tumblr           as Tumblr
 import qualified Web.Tumblr.Types     as Tumblr
 
@@ -25,33 +26,23 @@ getTumblrInfo ∷ Manager → Tumblr.BaseHostname → OAuth → IO Tumblr.BlogIn
 getTumblrInfo mgr hostname creds =
   runResourceT $ runReaderT (Tumblr.tumblrInfo hostname mgr) creds
 
-tumblrOAuth :: ByteString -- ^ The Tumblr API key
-            -> ByteString -- ^ The Tumblr API secret to use
-            -> OAuth
-tumblrOAuth key secret = newOAuth { oauthServerName = "tumblr"
-                                  , oauthRequestUri = "http://www.tumblr.com/oauth/request_token"
-                                  , oauthAccessTokenUri = "http://www.tumblr.com/oauth/access_token"
-                                  , oauthAuthorizeUri = "http://www.tumblr.com/oauth/authorize"
-                                  , oauthConsumerKey = key
-                                  , oauthConsumerSecret = secret }
-
 main ∷ IO ()
 main = do
   f ← readFileUtf8 "/home/benjamin/secrets/tumblr.json"
 
-  Just (secrets        ∷ Value)      ← pure (f ^? _JSON)
+  let (Just (secrets∷Value)) = f ^? _JSON
 
-  Just (tokenKey       ∷ ByteString) ← pure $ secrets ^? key "token"           . _String . to encodeUtf8
-  Just (tokenSecret    ∷ ByteString) ← pure $ secrets ^? key "token_secret"    . _String . to encodeUtf8
-  Just (consumerKey    ∷ ByteString) ← pure $ secrets ^? key "consumer_key"    . _String . to encodeUtf8
-  Just (consumerSecret ∷ ByteString) ← pure $ secrets ^? key "consumer_secret" . _String . to encodeUtf8
+  let (Just tokenKey)       = map encodeUtf8 (secrets ^? key "token"           . _String)
+  let (Just tokenSecret)    = map encodeUtf8 (secrets ^? key "token_secret"    . _String)
+  let (Just consumerKey)    = map encodeUtf8 (secrets ^? key "consumer_key"    . _String)
+  let (Just consumerSecret) = map encodeUtf8 (secrets ^? key "consumer_secret" . _String)
 
-  mgr ← NetConduit.newManager defaultManagerSettings
+  mgr ← newManager defaultManagerSettings
 
-  let cred = newCredential tokenKey tokenSecret
+  let cred         = newCredential tokenKey tokenSecret
+  let oauth        = tumblrOAuth consumerKey consumerSecret
+  let blogHostname = "story-of-my-food.tumblr.com"
 
-  let oauth = tumblrOAuth consumerKey consumerSecret
-
-  val ← getTumblrInfo mgr "story-of-my-food.tumblr.com" oauth
+  val <- runResourceT $ runReaderT (Tumblr.tumblrInfo blogHostname mgr) oauth
 
   print val
