@@ -5,30 +5,30 @@ module Web.Tumblr where
 import Control.Applicative
 import Control.Arrow
 import Control.Monad.Reader
-
+import Control.Monad.Trans.Control
+import Control.Monad.Trans.Resource
 import Data.Aeson
 import Data.Attoparsec.ByteString
-import Data.ByteString (ByteString)
-import qualified Data.ByteString.Lazy as LB
-import qualified Data.ByteString.Char8 as B
 import Data.Char
 import Data.Conduit
 import Data.Conduit.Attoparsec
-import qualified Data.Conduit.Binary as CB
 import Data.Maybe
 import Data.Monoid
-
 import Network.HTTP.Conduit
 import Network.HTTP.Types
-import Control.Monad.Trans.Control
-import Control.Monad.Trans.Resource
-
--- import Web.Authenticate.OAuth(Credential)
 import Web.Authenticate.OAuth
-
-import Web.Tumblr.Types
 import Web.Tumblr.Helpers
-import qualified Data.HashMap.Strict as HM
+import Web.Tumblr.Types
+import Network.URL (URL)
+
+import Data.ByteString (ByteString)
+
+import qualified Data.ByteString.Char8 as B
+import qualified Data.ByteString.Lazy  as LB
+import qualified Data.Conduit.Binary   as CB
+import qualified Data.HashMap.Strict   as HM
+
+--------------------------------------------------------------------------------------------------------------
 
 newtype AvatarSize = AvatarSize {getAvatarSize :: Int}
 
@@ -44,7 +44,6 @@ instance HasAPIKey ByteString where
 
 instance HasAPIKey OAuth where
   getAPIKey = oauthConsumerKey
-
 
 tumblrOAuth :: ByteString -- ^ The Tumblr API key
             -> ByteString -- ^ The Tumblr API secret to use
@@ -81,10 +80,8 @@ tumblrAuthorize oauth mgr = do
   cred <- getAccessToken oauth tempCred' mgr
   return cred
 
-tumblrBaseRequest :: Request
-tumblrBaseRequest = defaultRequest {
-  host = B.pack "api.tumblr.com"
-  }
+tumblrReq :: Request
+tumblrReq = defaultRequest { host = B.pack "api.tumblr.com" }
 
 reduceFirst :: ByteString -> ByteString
 reduceFirst = fromMaybe B.empty . fmap (uncurry B.cons . first toLower) . B.uncons
@@ -103,12 +100,21 @@ jsonValue = json >>= \v -> case fromJSON v of
       Error s -> fail s
       Success x -> return x
 
+postPhotoURL :: (HasAPIKey k, MonadBaseControl IO m, MonadResource m, MonadReader k m)
+             => BaseHostname -> Manager -> URL -> m ()
+postPhotoURL baseHostname manager photo = do
+  undefined
+  -- apiKey <- getAPIKey <$> ask
+  -- let req = tumblrReq { path = "/v2/blog" <> baseHostname <> "/info?api_key=" <> apiKey }
+  -- resp <- responseBody <$> http myRequest manager
+  -- resp $$+- sinkParser jsonValue
+
 -- | This method returns general information about the blog, such as the title, number of posts, and other high-level data.
 tumblrInfo :: (HasAPIKey k, MonadBaseControl IO m, MonadResource m, MonadReader k m) =>
              BaseHostname -> Manager -> m BlogInfo
 tumblrInfo baseHostname manager = do
   apiKey <- getAPIKey <$> ask
-  let myRequest = tumblrBaseRequest {path = B.pack "/v2/blog/" <> baseHostname <> B.pack "/info?api_key=" <> apiKey}
+  let myRequest = tumblrReq {path = B.pack "/v2/blog/" <> baseHostname <> B.pack "/info?api_key=" <> apiKey}
   resp <- responseBody <$> http myRequest manager
   resp $$+- sinkParser jsonValue
 
@@ -123,7 +129,7 @@ tumblrAvatar baseHostname msize manager = do
     resp <- responseBody <$> http myRequest manager
     resp $$+- CB.sinkLbs
   where
-    myRequest = tumblrBaseRequest { path = myPath }
+    myRequest = tumblrReq { path = myPath }
     myPath    = B.pack "/v2/blog/" <> baseHostname <> B.pack "/avatar"
                                    <> maybe B.empty (B.pack . show . getAvatarSize) msize
 
@@ -136,10 +142,10 @@ tumblrLikes :: (HasAPIKey k, MonadBaseControl IO m, MonadResource m, MonadReader
               -> Manager -> m Likes
 tumblrLikes baseHostname mlimit moffset manager = do
   apiKey <- getAPIKey <$> ask
-  let myRequest = tumblrBaseRequest {path = B.pack "/v2/blog/" <> baseHostname <>
-                                            B.pack "/likes?api_key=" <> apiKey <>
-                                            maybe B.empty ((B.pack "&limit=" <>) . B.pack . show) mlimit <>
-                                            maybe B.empty ((B.pack "&offset=" <>) . B.pack . show) moffset }
+  let myRequest = tumblrReq {path = B.pack "/v2/blog/" <> baseHostname <>
+                                        B.pack "/likes?api_key=" <> apiKey <>
+                                        maybe B.empty ((B.pack "&limit=" <>) . B.pack . show) mlimit <>
+                                        maybe B.empty ((B.pack "&offset=" <>) . B.pack . show) moffset }
   resp <- responseBody <$> http myRequest manager
   resp $$+- sinkParser jsonValue
 
@@ -154,10 +160,10 @@ tumblrFollowers :: (MonadBaseControl IO m, MonadResource m, MonadReader OAuth m)
 tumblrFollowers baseHostname mlimit moffset credential manager = do
   oauth <- ask
   myRequest <- signOAuth oauth credential $
-              tumblrBaseRequest {path = B.pack "/v2/blog/" <> baseHostname <>
-                                        B.pack "/followers" <>
-                                        renderQueryCull True [(B.pack "limit", B.pack . show <$> mlimit),
-                                                              (B.pack "offset", B.pack . show <$> moffset)]}
+              tumblrReq {path = B.pack "/v2/blog/" <> baseHostname <>
+                                    B.pack "/followers" <>
+                                    renderQueryCull True [(B.pack "limit", B.pack . show <$> mlimit),
+                                                          (B.pack "offset", B.pack . show <$> moffset)]}
   resp <- responseBody <$> http myRequest manager
   resp $$+- sinkParser jsonValue
 
@@ -175,15 +181,15 @@ tumblrPosts :: (HasAPIKey k, MonadBaseControl IO m, MonadResource m, MonadReader
               -> Manager -> m Posts
 tumblrPosts baseHostname mtype mid mtag mlimit moffset mrebloginfo mnotesinfo mfilter manager = do
   apiKey <- getAPIKey <$> ask
-  let myRequest = tumblrBaseRequest {path = B.pack "/v2/blog/" <> baseHostname <> B.pack "/posts" <> maybe B.empty (B.cons '/' . reduceFirst . B.pack . show) mtype <> renderQueryCull True [
-                                        (B.pack "api_key", Just apiKey),
-                                        (B.pack "id", B.pack . show <$> mid),
-                                        (B.pack "tag", B.pack <$> mtag),
-                                        (B.pack "limit", B.pack . show <$> mlimit),
-                                        (B.pack "offset", B.pack . show <$> moffset),
-                                        (B.pack "reblog_info", reduceFirst . B.pack . show <$> mrebloginfo),
-                                        (B.pack "notes_info", reduceFirst . B.pack . show <$> mnotesinfo),
-                                        (B.pack "filter", reduceFirst . B.pack . show <$> mfilter)]}
+  let myRequest = tumblrReq {path = B.pack "/v2/blog/" <> baseHostname <> B.pack "/posts" <> maybe B.empty (B.cons '/' . reduceFirst . B.pack . show) mtype <> renderQueryCull True [
+                                    (B.pack "api_key", Just apiKey),
+                                    (B.pack "id", B.pack . show <$> mid),
+                                    (B.pack "tag", B.pack <$> mtag),
+                                    (B.pack "limit", B.pack . show <$> mlimit),
+                                    (B.pack "offset", B.pack . show <$> moffset),
+                                    (B.pack "reblog_info", reduceFirst . B.pack . show <$> mrebloginfo),
+                                    (B.pack "notes_info", reduceFirst . B.pack . show <$> mnotesinfo),
+                                    (B.pack "filter", reduceFirst . B.pack . show <$> mfilter)]}
   resp <- responseBody <$> http myRequest manager
   resp $$+- sinkParser jsonValue
 
@@ -197,10 +203,10 @@ tumblrQueuedPosts :: (MonadBaseControl IO m, MonadResource m, MonadReader OAuth 
                     -> Manager -> m JustPosts
 tumblrQueuedPosts baseHostname mlimit moffset mfilter credential manager = do
   oauth <- ask
-  myRequest <- signOAuth oauth credential $ tumblrBaseRequest {path = B.pack "/v2/blog/" <> baseHostname <> B.pack "/posts/queue" <> renderQueryCull True [
-                                                                  (B.pack "limit", B.pack . show <$> mlimit),
-                                                                  (B.pack "offset", B.pack . show <$> moffset),
-                                                                  (B.pack "filter", reduceFirst . B.pack . show <$> mfilter)]}
+  myRequest <- signOAuth oauth credential $ tumblrReq {path = B.pack "/v2/blog/" <> baseHostname <> B.pack "/posts/queue" <> renderQueryCull True [
+                                                              (B.pack "limit", B.pack . show <$> mlimit),
+                                                              (B.pack "offset", B.pack . show <$> moffset),
+                                                              (B.pack "filter", reduceFirst . B.pack . show <$> mfilter)]}
   resp <- responseBody <$> http myRequest manager
   resp $$+- sinkParser jsonValue
 
@@ -212,9 +218,9 @@ tumblrDraftPosts :: (MonadBaseControl IO m, MonadResource m, MonadReader OAuth m
                    -> Manager -> m JustPosts
 tumblrDraftPosts baseHostname mfilter credential manager = do
   oauth <- ask
-  myRequest <- signOAuth oauth credential $ tumblrBaseRequest {path = B.pack "/v2/blog/" <> baseHostname <>
-                                                                     B.pack "/posts/draft" <>
-                                                                     maybe B.empty (B.append (B.pack "?filter=") . reduceFirst . B.pack . show) mfilter}
+  myRequest <- signOAuth oauth credential $ tumblrReq {path = B.pack "/v2/blog/" <> baseHostname <>
+                                                                 B.pack "/posts/draft" <>
+                                                                 maybe B.empty (B.append (B.pack "?filter=") . reduceFirst . B.pack . show) mfilter}
   resp <- responseBody <$> http myRequest manager
   resp $$+- sinkParser jsonValue
 
@@ -227,8 +233,8 @@ tumblrSubmissionPosts :: (MonadBaseControl IO m, MonadResource m, MonadReader OA
                         -> Manager -> m JustPosts
 tumblrSubmissionPosts baseHostname moffset mfilter credential manager = do
   oauth <- ask
-  myRequest <- signOAuth oauth credential $ tumblrBaseRequest {path = B.pack "/v2/blog/" <> baseHostname <> B.pack "/posts/submission" <> renderQueryCull True [
-                                                                  (B.pack "offset", B.pack . show <$> moffset),
-                                                                  (B.pack "filter", reduceFirst . B.pack  . show <$> mfilter)]}
+  myRequest <- signOAuth oauth credential $ tumblrReq {path = B.pack "/v2/blog/" <> baseHostname <> B.pack "/posts/submission" <> renderQueryCull True [
+                                                              (B.pack "offset", B.pack . show <$> moffset),
+                                                              (B.pack "filter", reduceFirst . B.pack  . show <$> mfilter)]}
   resp <- responseBody <$> http myRequest manager
   resp $$+- sinkParser jsonValue

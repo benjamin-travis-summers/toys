@@ -1,0 +1,6 @@
+[package]
+name = "mutlist-rs"
+version = "0.1.0"
+authors = ["Benjamin Travis Summers <benjamin@bsummers.me>"]
+
+[dependencies]

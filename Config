@@ -1,6 +1,6 @@
     let opts =
-          { haskellPkgs   = [ "cs1010-lab1-hs", "workdown", "turkish", "post-photo-to-tumblr", "humblr" ]
-          , rustPkgs      = [ "cs1010-lab1-rs" ]
+          { haskellPkgs   = [ "lab1010-1-hs", "workdown", "turkish", "post-photo-to-tumblr", "humblr" ]
+          , rustPkgs      = [ "lab1010-1-rs", "mutbst-rs", "mutlist-rs" ]
           , stackResolver = "lts-9.14"
           , buildDeps     = [ "dhall-text", "dhall", "cargo", "stack" ]
           }
@@ -16,7 +16,9 @@ in  let mapText = map Text Text
 in  let pkg = λ(nm : Text) → "pkg/" ++ nm
 
 in  { cargo =
-        { dependencies = { cs1010-lab1-rs = { path = "pkg/cs1010-lab1-rs" } }
+        { dependencies = { lab1010-1-rs = { path = "pkg/lab1010-1-rs" }
+                         , mutlist-rs   = { path = "pkg/mutlist-rs"   }
+                         , mutbst-rs    = { path = "pkg/mutbst-rs"    } }
         , workspace    = { members = mapText pkg opts.rustPkgs }
         }
     , stack =
@@ -33,7 +35,7 @@ in  { cargo =
       ''
     , cargo-lock = ''
         [root]
-        name = "cs1010-lab1-rs"
+        name = "lab1010-1-rs"
         version = "0.1.0"
         dependencies = [
          "text_io 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",

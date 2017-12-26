@@ -33,6 +33,7 @@ library
                      , old-locale
                      , unordered-containers
                      , process
+                     , url
 
   hs-source-dirs:      src
 
