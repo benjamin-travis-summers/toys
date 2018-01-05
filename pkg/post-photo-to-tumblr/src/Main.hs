@@ -18,9 +18,13 @@ import Web.Authenticate.OAuth
 import Network.HTTP.Client
 
 import qualified Network.HTTP.Conduit as NetConduit
-import           Web.Tumblr (tumblrOAuth)
 import qualified Web.Tumblr           as Tumblr
 import qualified Web.Tumblr.Types     as Tumblr
+
+import Web.Tumblr (tumblrOAuth)
+import Network.URL (importURL)
+
+--------------------------------------------------------------------------------------------------------------
 
 getTumblrInfo ∷ Manager → Tumblr.BaseHostname → OAuth → IO Tumblr.BlogInfo
 getTumblrInfo mgr hostname creds =
@@ -43,6 +47,10 @@ main = do
   let oauth        = tumblrOAuth consumerKey consumerSecret
   let blogHostname = "story-of-my-food.tumblr.com"
 
-  val <- runResourceT $ runReaderT (Tumblr.tumblrInfo blogHostname mgr) oauth
+  let photoHash       = "QmPnbgmwGrxEx1B9CpStJAsxTex4QZGoCpC7VbJtoFHmeb"
+  let (Just photoUrl) = importURL ("https://ipfs.io/ipfs/" <> photoHash)
+  let postIt          = Tumblr.postPhotoURL blogHostname mgr photoUrl
+
+  val <- runResourceT (runReaderT postIt oauth)
 
   print val

@@ -8,18 +8,31 @@ category:            Web
 
 dependencies:
   - aeson
+  - attoparsec
+  - attoparsec-conduit
   - authenticate-oauth
   - base
+  - bytestring
   - classy-prelude
+  - conduit
+  - conduit-extra
   - containers
   - foundation
   - http-client
   - http-conduit
-  - humblr
+  - http-types
   - lens
   - lens-aeson
+  - monad-control
+  - mono-traversable
+  - mtl
+  - old-locale
+  - process
   - resourcet
+  - time
+  - unordered-containers
+  - url
 
 executable:
-  source-dirs:      .
-  main:             post-photo-to-tumblr.hs
+  source-dirs:      src
+  main:             Main.hs

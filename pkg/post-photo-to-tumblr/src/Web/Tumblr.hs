@@ -1,7 +1,8 @@
-{-# LANGUAGE FlexibleContexts, DoAndIfThenElse #-}
+{-# LANGUAGE FlexibleContexts, DoAndIfThenElse, OverloadedStrings, ScopedTypeVariables #-}
 
 module Web.Tumblr where
 
+import Prelude
 import Control.Applicative
 import Control.Arrow
 import Control.Monad.Reader
@@ -19,14 +20,16 @@ import Network.HTTP.Types
 import Web.Authenticate.OAuth
 import Web.Tumblr.Helpers
 import Web.Tumblr.Types
-import Network.URL (URL)
-
-import Data.ByteString (ByteString)
 
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy  as LB
 import qualified Data.Conduit.Binary   as CB
 import qualified Data.HashMap.Strict   as HM
+
+import Data.Function ((&))
+import Network.URL (URL, exportURL)
+import Data.Sequences (encodeUtf8, pack)
+import Data.ByteString (ByteString)
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -94,20 +97,35 @@ type BaseHostname = ByteString
 jsonValue :: (FromJSON a) => Parser a
 jsonValue = json >>= \v -> case fromJSON v of
   Error s -> fail s
-  Success x -> case HM.lookup "response" x of
+  Success x -> case HM.lookup ("response" :: String) x of
     Nothing -> fail "Invalid response data"
     Just w  ->  case fromJSON w of
       Error s -> fail s
       Success x -> return x
 
 postPhotoURL :: (HasAPIKey k, MonadBaseControl IO m, MonadResource m, MonadReader k m)
-             => BaseHostname -> Manager -> URL -> m ()
-postPhotoURL baseHostname manager photo = do
-  undefined
-  -- apiKey <- getAPIKey <$> ask
-  -- let req = tumblrReq { path = "/v2/blog" <> baseHostname <> "/info?api_key=" <> apiKey }
-  -- resp <- responseBody <$> http myRequest manager
-  -- resp $$+- sinkParser jsonValue
+             => BaseHostname -> Manager -> URL -> m Value
+postPhotoURL baseHostname manager photoURL = do
+  apiKey :: ByteString <- getAPIKey <$> ask
+
+  let urlParams = [ ("type",    Just "photo")
+                  , ("source",  Just (encodeUtf8 $ pack $ exportURL photoURL))
+                  , ("api_key", Just apiKey)
+                  ] :: [(ByteString, Maybe ByteString)]
+
+  let baseReq = tumblrReq { method      = "POST"
+                          , path        = B.pack "/v2/blog/" <> baseHostname <> B.pack "/post"
+                          }
+
+  let req = baseReq & setQueryString urlParams
+
+  resp <- http req manager
+
+  liftIO (print req)
+
+  liftIO (print $ fmap (const ()) resp)
+
+  responseBody resp $$+- sinkParser jsonValue
 
 -- | This method returns general information about the blog, such as the title, number of posts, and other high-level data.
 tumblrInfo :: (HasAPIKey k, MonadBaseControl IO m, MonadResource m, MonadReader k m) =>
