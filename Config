@@ -2,6 +2,7 @@
           { haskellPkgs   = [ "lab1010-1-hs"
                             , "workdown"
                             , "turkish"
+                            , "papers-on-ipfs"
                             , "post-photo-to-tumblr"
                             , "get-new-posts-on-subreddit"
                             ]

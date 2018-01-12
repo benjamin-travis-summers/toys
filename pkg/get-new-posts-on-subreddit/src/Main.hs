@@ -19,6 +19,7 @@ import qualified Reddit.Actions.Search  as Reddit
 import qualified Reddit.Types.Subreddit as Reddit
 import qualified Reddit.Types.Options   as Reddit
 import qualified Reddit.Types.Listing   as Reddit
+import qualified Reddit.Types.Post      as RedditPost
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -62,15 +63,16 @@ tumblrMain = do
 main ∷ IO ()
 main = do
   r <- liftIO (Reddit.runRedditAnon getHaskellPosts)
-  print r
   case r of
     Left err -> print err
     Right listing ->
       for_ (Reddit.contents listing) $ \post → do
-        print post
+        let (RedditPost.PostID id) = RedditPost.postID post
+        let title                  = RedditPost.title post
+        putStrLn ("[" <> id <> "]: " <> title)
 
 getHaskellPosts ∷ Reddit.RedditT IO Reddit.PostListing
 getHaskellPosts = do
-  let haskell ∷ Reddit.SubredditName = Reddit.R "haskell"
-  let opts = Reddit.Options Nothing (Just 100)
+  let haskell = Reddit.R "haskell"
+  let opts    = Reddit.Options Nothing (Just 50)
   Reddit.getPosts' opts Reddit.New (Just haskell)
