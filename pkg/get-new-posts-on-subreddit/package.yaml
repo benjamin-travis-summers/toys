@@ -1,4 +1,4 @@
-name:                post-photo-to-tumblr
+name:                get-new-posts-on-subreddit
 version:             0.1.0.0
 license:             AGPL-3
 author:              Benjamin Summers
@@ -12,6 +12,7 @@ executable:
 
 dependencies:
   - aeson
+  - reddit
   - attoparsec
   - attoparsec-conduit
   - authenticate-oauth
@@ -46,3 +47,4 @@ default-extensions:
   - ScopedTypeVariables
   - TypeApplications
   - UnicodeSyntax
+  - NamedFieldPuns

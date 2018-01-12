@@ -14,14 +14,20 @@ import qualified Web.Tumblr.Types     as Tumblr
 import Web.Tumblr (tumblrOAuth)
 import Network.URL (exportURL, importURL)
 
+import qualified Reddit                 as Reddit
+import qualified Reddit.Actions.Search  as Reddit
+import qualified Reddit.Types.Subreddit as Reddit
+import qualified Reddit.Types.Options   as Reddit
+import qualified Reddit.Types.Listing   as Reddit
+
 --------------------------------------------------------------------------------------------------------------
 
 getTumblrInfo ∷ Manager → Tumblr.BaseHostname → OAuth → IO Tumblr.BlogInfo
 getTumblrInfo mgr hostname creds =
   runResourceT $ runReaderT (Tumblr.tumblrInfo hostname mgr) creds
 
-main ∷ IO ()
-main = do
+tumblrMain ∷ IO ()
+tumblrMain = do
   f ← readFileUtf8 "/home/benjamin/secrets/tumblr.json"
 
   let (Just (secrets∷Value)) = f ^? _JSON
@@ -52,3 +58,19 @@ main = do
   resp <- Wreq.postWith opts url ("" :: ByteString)
   let body = resp ^. Wreq.responseBody
   print body
+
+main ∷ IO ()
+main = do
+  r <- liftIO (Reddit.runRedditAnon getHaskellPosts)
+  print r
+  case r of
+    Left err -> print err
+    Right listing ->
+      for_ (Reddit.contents listing) $ \post → do
+        print post
+
+getHaskellPosts ∷ Reddit.RedditT IO Reddit.PostListing
+getHaskellPosts = do
+  let haskell ∷ Reddit.SubredditName = Reddit.R "haskell"
+  let opts = Reddit.Options Nothing (Just 100)
+  Reddit.getPosts' opts Reddit.New (Just haskell)

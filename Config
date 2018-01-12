@@ -1,15 +1,18 @@
     let opts =
-          { haskellPkgs   = [ "lab1010-1-hs", "workdown", "turkish", "post-photo-to-tumblr" ]
+          { haskellPkgs   = [ "lab1010-1-hs"
+                            , "workdown"
+                            , "turkish"
+                            , "post-photo-to-tumblr"
+                            , "get-new-posts-on-subreddit"
+                            ]
           , rustPkgs      = [ "lab1010-1-rs", "mutbst-rs", "mutlist-rs" ]
           , stackResolver = "lts-9.14"
           , buildDeps     = [ "dhall-text", "dhall", "cargo", "stack" ]
           }
 
-in  let map =
-          https://ipfs.io/ipfs/QmQ8w5PLcsNz56dMvRtq54vbuPe9cNnCCUXAQp6xLc6Ccx/Prelude/List/map 
+in  let map = /ipfs/QmYmByX6W9srN4cwFCEL58KzAH937Es5qyhFnWHoWnYtVH/Prelude/List/map
 
-in  let concatSep =
-          https://ipfs.io/ipfs/QmQ8w5PLcsNz56dMvRtq54vbuPe9cNnCCUXAQp6xLc6Ccx/Prelude/Text/concatSep 
+in  let concatSep = /ipfs/QmYmByX6W9srN4cwFCEL58KzAH937Es5qyhFnWHoWnYtVH/Prelude/Text/concatSep
 
 in  let mapText = map Text Text
 
@@ -22,9 +25,10 @@ in  { cargo =
         , workspace    = { members = mapText pkg opts.rustPkgs }
         }
     , stack =
-        { packages = mapText pkg opts.haskellPkgs
-        , resolver = opts.stackResolver
-        , extra-deps = [ "attoparsec-conduit-1.1.0" ]
+        { extra-deps =
+            [ "attoparsec-conduit-1.1.0", "reddit-0.2.2.1", "api-builder-0.14.0.0" ]
+        , packages   = mapText pkg opts.haskellPkgs
+        , resolver   = opts.stackResolver
         }
     , nix = ''
         with import <nixpkgs> {};
