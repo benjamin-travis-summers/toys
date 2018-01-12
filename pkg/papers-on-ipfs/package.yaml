@@ -38,6 +38,8 @@ dependencies:
   - url
   - wreq
   - scotty
+  - f-var
+  - binary-orphans
 
 default-extensions:
   - DoAndIfThenElse

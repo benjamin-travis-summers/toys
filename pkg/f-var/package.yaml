@@ -1,0 +1,23 @@
+name:                f-var
+version:             0.1.0.0
+license:             BSD3
+author:              "Benjamin Summers"
+maintainer:          "github@bsummers.me"
+copyright:           "2018 Benjamin Summers"
+
+library:
+  source-dirs: src
+
+dependencies:
+  - base
+  - classy-prelude
+  - directory
+  - binary
+  - largeword
+  - cryptohash
+
+tests:
+  testest-test:
+    main:         Spec.hs
+    source-dirs:  test
+    dependencies: ["f-var"]

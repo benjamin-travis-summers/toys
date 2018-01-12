@@ -2,6 +2,8 @@ import ClassyPrelude hiding (head, fromList)
 import Control.Lens
 import Web.Scotty
 import Data.List.NonEmpty
+import FVar
+import Data.Binary.Orphans ()
 
 {-
   Three operations
@@ -10,19 +12,19 @@ import Data.List.NonEmpty
     - Browse the revision history.
 
   TODO
+    ✓ Persist the new hashes (using FVar).
     - Allow users to push new hashes.
-    - Merge user hashes with the existing hash.
-    - Persist the new hashes
+    - Instead of replacing the existing hash, merge the two directories.
 -}
 
 type RevHistory = NonEmpty Text
-type RevDb      = IORef RevHistory
+type RevDb      = FVar RevHistory
 
 newRevDb :: Text -> IO RevDb
-newRevDb hash = newIORef (fromList [hash])
+newRevDb hash = loadFVar "papers-archive" (fromList [hash])
 
 latestRev :: RevDb -> IO Text
-latestRev ref = head <$> readIORef ref
+latestRev ref = head <$> readFVar ref
 
 main = do
   hashVar <- newRevDb "QmPnbgmwGrxEx1B9CpStJAsxTex4QZGoCpC7VbJtoFHmeb"
@@ -42,4 +44,3 @@ main = do
 
     post "^/new" $ do
       html "TODO"
-

@@ -4,6 +4,7 @@
                             , "turkish"
                             , "papers-on-ipfs"
                             , "post-photo-to-tumblr"
+                            , "f-var"
                             , "get-new-posts-on-subreddit"
                             ]
           , rustPkgs      = [ "lab1010-1-rs", "mutbst-rs", "mutlist-rs" ]
