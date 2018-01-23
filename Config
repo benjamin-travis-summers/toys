@@ -11,6 +11,7 @@ in  let opts =
                             , "f-var"
                             , "get-new-posts-on-subreddit"
                             , "ipfs-s3-bridge"
+                            , "shell-conduit"
                             ]
           , rustPkgs      = [ "lab1010-1-rs", "mutbst-rs", "mutlist-rs" ]
           , stackResolver = "lts-10.3"
