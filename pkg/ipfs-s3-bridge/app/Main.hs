@@ -4,21 +4,22 @@ module Main where
 
 --------------------------------------------------------------------------------------------------------------
 
-import RIO
+import ClassyPrelude hiding (bracket)
+import Control.Lens
+import Control.Lens.TH
 import Data.Conduit
-import Data.Acquire
 
-import Control.Lens.TH (makeLenses)
+import RIO (RIO, runRIO, bracket)
 import System.Directory (removeFile)
-import ClassyPrelude (unpack, getArgs)
-import Data.Conduit.Shell (($|))
+import Data.Conduit.Shell (($|), ipfs, echo)
 import Control.Monad.Trans.Resource (ResourceT)
 
-import qualified Data.Text           as Text
-import qualified Data.Conduit.Binary as CB
-import qualified Data.Conduit.List   as CL
-import qualified Data.Conduit.Shell  as Sh
-import qualified Data.Conduit.Text   as CT
+import qualified Data.Text                   as Text
+import qualified Data.Conduit.Binary         as CB
+import qualified Data.Conduit.List           as CL
+import qualified Data.Conduit.Shell          as Sh
+import qualified Data.Conduit.Shell.Segments as Sh
+import qualified Data.Conduit.Text           as CT
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -46,27 +47,25 @@ linesSink :: ConduitM ByteString c IO [Text]
 linesSink = CT.decodeUtf8 .| CT.lines .| CL.consume
 
 shellLines :: Sh.Segment () -> RIO env [Text]
-shellLines seg = liftIO $ Sh.run (seg $| Sh.conduit linesSink)
+shellLines = liftIO . Sh.run . Sh.texts
 
 listBlockClosure :: Text -> RIO env [Text]
 listBlockClosure block =
-    shellLines (Sh.ipfs "refs" "-r" "-u" block)
+    shellLines (ipfs "refs" "-r" "-u" block)
 
 listBlockRefs :: Text -> RIO env [Text]
 listBlockRefs block = do
-    shellLines (Sh.ipfs "refs" "-u" block)
+    shellLines (ipfs "refs" "-u" block)
 
 listAllPinnedBlocks :: RIO env [Text]
 listAllPinnedBlocks = do
-    let listPinned    = Sh.ipfs "pin" "ls"
-    let justFilenames = Sh.sed "s/ .*//"
-    shellLines (listPinned $| justFilenames)
-
-sinkFile :: FilePath -> ConduitM ByteString o IO ()
-sinkFile = undefined (CB.sinkFile ∷ FilePath -> ConduitM ByteString o (ResourceT IO) ())
-
-sourceFile :: FilePath -> ConduitM i ByteString IO ()
-sourceFile = undefined (CB.sourceFile ∷ FilePath -> ConduitM i ByteString (ResourceT IO) ())
+    traceM "listing pinned blocks"
+    roots  <- shellLines (ipfs "pin" "ls" "-q" "--type=recursive")
+    direct <- shellLines (ipfs "pin" "ls" "-q" "--type=direct")
+    let pinned = roots <> direct
+    traceM "These blocks are pinned:"
+    traceM (show pinned)
+    pure pinned
 
 persistBlock :: HasConfig env => Text -> RIO env ()
 persistBlock block = do
@@ -74,8 +73,11 @@ persistBlock block = do
         bucket ← getBucket
         let s3Url = unpack ("s3://" <> bucket <> "/block/" <> block)
         liftIO $ do
-            Sh.run (Sh.ipfs "block" "get" block $| Sh.conduit (sinkFile tmp))
-            Sh.run (Sh.proc "/usr/bin/aws" ["s3", "cp", tmp, s3Url])
+            Sh.run $ do
+                echo "$ ipfs" "block" "get" block
+                Sh.shell ("ipfs block get " <> unpack block <> " >" <> tmp)
+                echo "$ aws" "s3" "cp" tmp s3Url
+                Sh.proc "/usr/bin/aws" ["s3", "cp", tmp, s3Url]
 
 restoreBlock :: HasConfig env => Text -> RIO env ()
 restoreBlock block = do
@@ -83,8 +85,11 @@ restoreBlock block = do
         bucket ← getBucket
         let s3Url = unpack ("s3://" <> bucket <> "/block/" <> block)
         liftIO $ Sh.run $ do
+            echo "Restoring: " block
+            Sh.echo "$ aws" ["s3", "cp", s3Url, tmp]
             Sh.proc "/usr/bin/aws" ["s3", "cp", s3Url, tmp]
-            Sh.conduit (sourceFile tmp) $| Sh.ipfs "block" "put"
+            echo ("$ ipfs block put <" <> tmp)
+            Sh.shell ("ipfs block put <" <> tmp)
 
 s3pin :: HasConfig env => Text -> RIO env ()
 s3pin block = do
@@ -95,11 +100,12 @@ s3pin block = do
 
     liftIO $ do
         Sh.run $ do
-            Sh.echo fn $| Sh.conduit (sinkFile fn)
+            writeFile (pack fn) (encodeUtf8 $ pack fn)
             Sh.proc "/usr/bin/aws" ["s3", "cp", fn, pinUrl]
         removeFile (fn :: String)
 
 persistClosure block = do
+    traceM ("persisting the closure of: " <> unpack block)
     persistBlock block
     s3pin block
     listBlockClosure block >>= traverse_ persistBlock
@@ -107,8 +113,9 @@ persistClosure block = do
 -- TODO This will do duplicate work if there are shared subtrees.
 restoreClosure :: HasConfig env => Text -> RIO env ()
 restoreClosure block = do
-  restoreBlock block
-  listBlockRefs block >>= traverse_ restoreClosure
+    traceM ("restoring the closure of: " <> unpack block)
+    restoreBlock block
+    listBlockRefs block >>= traverse_ restoreClosure
 
 -- TODO This will duplicate lots of work!
 persistPinned :: HasConfig env => RIO env ()
@@ -130,7 +137,7 @@ s3ListAllPins = do
     pure (filter looksLikeAnIpfsBlockHash result)
 
 ipfsPinBlock block =
-  liftIO $ Sh.run (Sh.ipfs "pin" "add" block)
+  liftIO $ Sh.run (ipfs "pin" "add" block)
 
 restorePinned = do
     s3ListAllBlocks >>= traverse_ restoreBlock
@@ -141,6 +148,9 @@ main = do
     let config = Config { _bucketL = "ipfs-archive-backups" }
     runRIO config $
       liftIO getArgs >>= \case
-        ["all"]        → persistPinned
-        ["restoreall"] → restorePinned
-        blocks         → for_ blocks persistClosure
+        "persist-all"   : [] → persistPinned
+        "restore-all"   : [] → restorePinned
+        "persist-tree"  : bs → for_ bs persistClosure
+        "restore-tree"  : bs → for_ bs restoreClosure
+        "persist-block" : bs → for_ bs persistClosure
+        "restore-block" : bs → for_ bs restoreClosure
