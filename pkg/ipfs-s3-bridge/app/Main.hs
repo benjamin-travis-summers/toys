@@ -1,5 +1,10 @@
 -- Upload a file or directory both to s3 and to IPFS.
 
+-- TODO Get a full list of locally pinned blocks.
+-- TODO Get a full list of remotely pinned blocks.
+-- TODO Don't persist blocks that're already on s3.
+-- TODO Don't restore blocks that're already pinned locally.
+
 module Main where
 
 --------------------------------------------------------------------------------------------------------------
@@ -23,18 +28,18 @@ import qualified Data.Conduit.Text           as CT
 
 --------------------------------------------------------------------------------------------------------------
 
-data Config = Config { _bucketL :: !Text }
+type BlockId = Text
+type BlockSet = Set BlockId
+
+data Config = Config { _pinnedL    :: TVar (Maybe BlockSet)
+                     , _persistedL :: TVar (Maybe BlockSet)
+                     , _bucketL    :: !Text
+                     }
 
 makeLenses ''Config
 
-class HasConfig env where
-  configL :: Lens' env Config
-
-instance HasConfig Config where
-  configL = id
-
-getBucket :: HasConfig env => RIO env Text
-getBucket = view (configL . bucketL)
+class HasConfig env where configL :: Lens' env Config
+instance HasConfig Config where configL = id
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -57,7 +62,9 @@ listBlockRefs :: Text -> RIO env [Text]
 listBlockRefs block = do
     shellLines (ipfs "refs" "-u" block)
 
-listAllPinnedBlocks :: RIO env [Text]
+--------------------------------------------------------------------------------------------------------------
+
+listAllPinnedBlocks :: RIO env [BlockId]
 listAllPinnedBlocks = do
     traceM "listing pinned blocks"
     roots  <- shellLines (ipfs "pin" "ls" "-q" "--type=recursive")
@@ -67,10 +74,41 @@ listAllPinnedBlocks = do
     traceM (show pinned)
     pure pinned
 
+listAllPersistedBlocks :: HasConfig env => RIO env [BlockId]
+listAllPersistedBlocks = do
+    bucket <- view (configL . bucketL)
+    let s3PinDir = unpack ("s3://" <> bucket <> "/pin/")
+    result <- shellLines (Sh.proc "/usr/bin/aws" ["s3", "ls", s3PinDir])
+    pure (filter looksLikeAnIpfsBlockHash result)
+
+--------------------------------------------------------------------------------------------------------------
+
+-- | All the pinned roots on the local IPFS node.
+localPins :: HasConfig env => RIO env BlockSet
+localPins = do
+    vPinnedSet <- view (configL . pinnedL)
+    atomically (readTVar vPinnedSet) >>= \case
+      Just pinnedSet -> pure pinnedSet
+      Nothing        -> do blockSet <- setFromList <$> listAllPinnedBlocks
+                           atomically $ writeTVar vPinnedSet (Just blockSet)
+                           pure blockSet
+
+-- | All the persisted roots on s3.
+persistedPins :: HasConfig env => RIO env BlockSet
+persistedPins = do
+    vPersistedSet <- view (configL . persistedL)
+    atomically (readTVar vPersistedSet) >>= \case
+      Just persistedSet -> pure persistedSet
+      Nothing           -> do blockSet <- setFromList <$> listAllPersistedBlocks
+                              atomically $ writeTVar vPersistedSet (Just blockSet)
+                              pure blockSet
+
+--------------------------------------------------------------------------------------------------------------
+
 persistBlock :: HasConfig env => Text -> RIO env ()
 persistBlock block = do
     withTmpFile block $ \tmp -> do
-        bucket ← getBucket
+        bucket ← view (configL . bucketL)
         let s3Url = unpack ("s3://" <> bucket <> "/block/" <> block)
         liftIO $ do
             Sh.run $ do
@@ -82,7 +120,7 @@ persistBlock block = do
 restoreBlock :: HasConfig env => Text -> RIO env ()
 restoreBlock block = do
     withTmpFile block $ \tmp -> do
-        bucket ← getBucket
+        bucket ← view (configL . bucketL)
         let s3Url = unpack ("s3://" <> bucket <> "/block/" <> block)
         liftIO $ Sh.run $ do
             echo "Restoring: " block
@@ -91,13 +129,13 @@ restoreBlock block = do
             echo ("$ ipfs block put <" <> tmp)
             Sh.shell ("ipfs block put <" <> tmp)
 
+--------------------------------------------------------------------------------------------------------------
+
 s3pin :: HasConfig env => Text -> RIO env ()
 s3pin block = do
-    bucket ← getBucket
-
+    bucket ← view (configL . bucketL)
     let fn     = unpack block
     let pinUrl = unpack ("s3://" <> bucket <> "/pin/" <> block)
-
     liftIO $ do
         Sh.run $ do
             writeFile (pack fn) (encodeUtf8 $ pack fn)
@@ -120,20 +158,14 @@ restoreClosure block = do
 -- TODO This will duplicate lots of work!
 persistPinned :: HasConfig env => RIO env ()
 persistPinned = do
-  listAllPinnedBlocks >>= traverse_ persistClosure
+  localPins >>= traverse_ persistClosure
 
 looksLikeAnIpfsBlockHash t = Text.take 2 t == "Qm"
 
 s3ListAllBlocks = do
-    bucket <- getBucket
+    bucket <- view (configL . bucketL)
     let s3BlockDir = unpack ("s3://" <> bucket <> "/block/")
     result <- shellLines (Sh.proc "/usr/bin/aws" ["s3", "ls", s3BlockDir])
-    pure (filter looksLikeAnIpfsBlockHash result)
-
-s3ListAllPins = do
-    bucket <- getBucket
-    let s3PinDir = unpack ("s3://" <> bucket <> "/pin/")
-    result <- shellLines (Sh.proc "/usr/bin/aws" ["s3", "ls", s3PinDir])
     pure (filter looksLikeAnIpfsBlockHash result)
 
 ipfsPinBlock block =
@@ -141,11 +173,16 @@ ipfsPinBlock block =
 
 restorePinned = do
     s3ListAllBlocks >>= traverse_ restoreBlock
-    s3ListAllPins >>= traverse_ ipfsPinBlock
+    persistedPins   >>= traverse_ ipfsPinBlock
 
 main :: IO ()
 main = do
-    let config = Config { _bucketL = "ipfs-archive-backups" }
+    config <- do
+        _pinnedL    <- newTVarIO Nothing
+        _persistedL <- newTVarIO Nothing
+        _bucketL    <- pure "ipfs-archive-backups"
+        pure (Config {..})
+
     runRIO config $
       liftIO getArgs >>= \case
         "persist-all"   : [] → persistPinned
