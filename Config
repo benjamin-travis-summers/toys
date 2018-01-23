@@ -34,7 +34,7 @@ in  { cargo =
     , stack =
         { extra-deps =
             [ ExtraDep.hackage "attoparsec-conduit-1.1.0"
-            , ExtraDep.hackage "reddit-0.2.2.1"
+            , ExtraDep.hackage "reddit-0.2.2.2"
             , ExtraDep.hackage "api-builder-0.14.0.0"
             , ExtraDep.hackage "unliftio-0.2.4.0"
             , ExtraDep.git

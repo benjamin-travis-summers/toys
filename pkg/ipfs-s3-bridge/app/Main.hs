@@ -6,31 +6,19 @@ module Main where
 
 import RIO
 import Data.Conduit
-import Control.Lens.TH
 import Data.Acquire
 
+import Control.Lens.TH (makeLenses)
 import System.Directory (removeFile)
 import ClassyPrelude (unpack, getArgs)
 import Data.Conduit.Shell (($|))
 import Control.Monad.Trans.Resource (ResourceT)
-import Control.Monad.Trans.Control (MonadBaseControl (..))
-import Control.Monad.Base (MonadBase (..))
 
 import qualified Data.Text           as Text
 import qualified Data.Conduit.Binary as CB
 import qualified Data.Conduit.List   as CL
 import qualified Data.Conduit.Shell  as Sh
 import qualified Data.Conduit.Text   as CT
-
---------------------------------------------------------------------------------------------------------------
-
-instance MonadBase IO (RIO env) where
-  liftBase = undefined
-
-instance MonadBaseControl IO (RIO env) where
-  type StM (RIO env) a = a
-  liftBaseWith _f = undefined
-  restoreM = undefined
 
 --------------------------------------------------------------------------------------------------------------
 
@@ -49,16 +37,10 @@ getBucket = view (configL . bucketL)
 
 --------------------------------------------------------------------------------------------------------------
 
-blockTmpFile :: Text -> Acquire FilePath
-blockTmpFile block = mkAcquire (pure $ unpack $ block <> ".block") removeFile
-
 withTmpFile :: Text -> (FilePath -> RIO env a) -> RIO env a
-withTmpFile block action = do
-    with (blockTmpFile block) action
-    -- let tmp = unpack (block <> ".block")
-    -- result <- action tmp
-    -- liftIO (removeFile tmp)
-    -- pure result
+withTmpFile block action =
+  bracket (pure tmpfn) (liftIO . removeFile) action
+  where tmpfn = unpack (block <> ".block")
 
 linesSink :: ConduitM ByteString c IO [Text]
 linesSink = CT.decodeUtf8 .| CT.lines .| CL.consume
