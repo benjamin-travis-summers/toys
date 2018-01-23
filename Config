@@ -12,6 +12,7 @@ in  let opts =
                             , "get-new-posts-on-subreddit"
                             , "ipfs-s3-bridge"
                             , "shell-conduit"
+                            , "rio"
                             ]
           , rustPkgs      = [ "lab1010-1-rs", "mutbst-rs", "mutlist-rs" ]
           , stackResolver = "lts-10.3"
@@ -38,10 +39,6 @@ in  { cargo =
             , ExtraDep.hackage "reddit-0.2.2.2"
             , ExtraDep.hackage "api-builder-0.14.0.0"
             , ExtraDep.hackage "unliftio-0.2.4.0"
-            , ExtraDep.git
-              { commit = "3c6aa9a4db2f4983e914f0e8d6fcea3ba3776a6b"
-              , git    = "git@github.com:commercialhaskell/rio.git"
-              }
             ]
         , packages   = mapText pkg opts.haskellPkgs
         , resolver   = opts.stackResolver
