@@ -1,0 +1,59 @@
+name:                ipfs-s3-bridge
+version:             0.1.0.0
+license:             AGPL-3
+author:              Benjamin Summers
+maintainer:          github@bsummers.me
+copyright:           2017 Benjamin Summers
+category:            Web
+
+executable:
+  source-dirs:      app
+  main:             Main.hs
+
+dependencies:
+  - aeson
+  - attoparsec
+  - attoparsec-conduit
+  - base
+  - bytestring
+  - classy-prelude
+  - conduit
+  - conduit-extra
+  - containers
+  - directory
+  - foundation
+  - http-client
+  - http-conduit
+  - http-types
+  - lens
+  - lens-aeson
+  - monad-control
+  - mono-traversable
+  - mtl
+  - old-locale
+  - process
+  - transformers-base
+  - resourcet
+  - rio
+  - shell-conduit
+  - text
+  - transformers-base
+  - time
+  - unordered-containers
+  - url
+  - wreq
+
+default-extensions:
+  - DoAndIfThenElse
+  - FlexibleContexts
+  - NoImplicitPrelude
+  - OverloadedStrings
+  - ScopedTypeVariables
+  - TypeApplications
+  - UnicodeSyntax
+  - NamedFieldPuns
+  - LambdaCase
+  - TemplateHaskell
+  - ExtendedDefaultRules
+  - MultiParamTypeClasses
+  - TypeFamilies

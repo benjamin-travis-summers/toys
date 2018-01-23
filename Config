@@ -1,4 +1,8 @@
-    let opts =
+    let ExtraDepTy = < git : { commit : Text, git : Text } | hackage : Text >
+
+in  let ExtraDep = constructors ExtraDepTy
+
+in  let opts =
           { haskellPkgs   = [ "lab1010-1-hs"
                             , "workdown"
                             , "turkish"
@@ -6,9 +10,10 @@
                             , "post-photo-to-tumblr"
                             , "f-var"
                             , "get-new-posts-on-subreddit"
+                            , "ipfs-s3-bridge"
                             ]
           , rustPkgs      = [ "lab1010-1-rs", "mutbst-rs", "mutlist-rs" ]
-          , stackResolver = "lts-9.14"
+          , stackResolver = "lts-10.3"
           , buildDeps     = [ "dhall-text", "dhall", "cargo", "stack" ]
           }
 
@@ -28,7 +33,15 @@ in  { cargo =
         }
     , stack =
         { extra-deps =
-            [ "attoparsec-conduit-1.1.0", "reddit-0.2.2.1", "api-builder-0.14.0.0" ]
+            [ ExtraDep.hackage "attoparsec-conduit-1.1.0"
+            , ExtraDep.hackage "reddit-0.2.2.1"
+            , ExtraDep.hackage "api-builder-0.14.0.0"
+            , ExtraDep.hackage "unliftio-0.2.4.0"
+            , ExtraDep.git
+              { commit = "3c6aa9a4db2f4983e914f0e8d6fcea3ba3776a6b"
+              , git    = "git@github.com:commercialhaskell/rio.git"
+              }
+            ]
         , packages   = mapText pkg opts.haskellPkgs
         , resolver   = opts.stackResolver
         }
