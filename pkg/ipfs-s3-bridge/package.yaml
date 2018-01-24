@@ -16,7 +16,7 @@ dependencies:
   - attoparsec-conduit
   - base
   - bytestring
-  - classy-prelude
+  - fatty-prelude
   - conduit
   - conduit-extra
   - containers
@@ -42,6 +42,8 @@ dependencies:
   - unordered-containers
   - url
   - wreq
+  - turtle
+  - foldl
 
 default-extensions:
   - DoAndIfThenElse
@@ -58,3 +60,4 @@ default-extensions:
   - MultiParamTypeClasses
   - TypeFamilies
   - RecordWildCards
+  - RankNTypes
