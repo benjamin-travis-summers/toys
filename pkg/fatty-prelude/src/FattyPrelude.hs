@@ -65,7 +65,7 @@ lensNamer typeNm _allFields fieldNm =
     [Lens.MethodName (TH.mkName clsNm) (TH.mkName methodNm)]
   where
     slotNm   = fieldLabelModifier typeNm fieldNm
-    clsNm    = "Has" <> overHead C.toUpper slotNm
+    clsNm    = "GenHas" <> overHead C.toUpper slotNm
     methodNm = (TH.nameBase fieldNm) <> "L"
 
 fieldRules :: Lens.LensRules

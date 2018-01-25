@@ -1,3 +1,5 @@
+{-# LANGUAGE StrictData #-}
+
 -- TODO Testing
 
 module Main where
@@ -23,58 +25,19 @@ data Block = Block { bHash :: !MultiHash
                    }
   deriving (Show, Eq)
 
-data Config = Config { cPinned    :: TVar (Maybe BlockSet)
-                     , cPersisted :: TVar (Maybe BlockSet)
-                     , cBucket    :: !Text
-                     }
-
-data BlockStore env = BlockStore { bsGet  :: MultiHash  -> RIO env Block
-                                 , bsPut  :: ByteString -> RIO env Block
-                                 , bsPin  :: MultiHash  -> RIO env ()
-                                 , bsPins :: RIO env (Set MultiHash)
-                                 }
+data BlockStore e = BlockStore { bsGet    :: MultiHash -> RIO e Block
+                               , bsPut    :: Block     -> RIO e Block
+                               , bsPin    :: MultiHash  -> RIO e ()
+                               , bsPins   :: RIO e (Set MultiHash)
+                               , bsBlocks :: RIO e (Set MultiHash)
+                               }
 
 makeFields ''Block
-makeFields ''Config
 makeFields ''BlockStore
 
-class HasConfig env where configL :: Lens' env Config
-instance HasConfig Config where configL = id
+-- Logging ---------------------------------------------------------------------------------------------------
 
--- Utilities -------------------------------------------------------------------------------------------------
-
-initialize ∷ (Lens' env (TVar (Maybe a))) → RIO env a → RIO env a
-initialize varLens buildVal =
-  do var ← view varLens
-     atomically (readTVar var) >>= \case
-       Just val → pure val
-       Nothing  → do val ← buildVal
-                     atomically $ writeTVar var (Just val)
-                     pure val
-
-withTmpFile :: Text -> (Text -> RIO env a) -> RIO env a
-withTmpFile block action = bracket (pure (block <> ".block")) (rm . fromString . unpack) action
-
-withTmpFileIO :: Text -> (Text -> IO a) -> IO a
-withTmpFileIO block action = bracket (pure (block <> ".block")) (rm . fromString . unpack) action
-
-linesSink :: ConduitM ByteString c IO [Text]
-linesSink = CT.decodeUtf8 .| CT.lines .| CL.consume
-
-shellLines :: MonadIO m => Shell Line -> m [Text]
-shellLines sh = Sh.fold (fmap lineToText sh) Fold.list
-
-listBlockClosure :: Text -> RIO env [Text]
-listBlockClosure block =
-    shellLines (inproc "ipfs" ["refs", "-r", "-u", block] empty)
-
-listBlockRefs :: Text -> RIO env [Text]
-listBlockRefs block = do
-    shellLines (inproc "ipfs" ["refs", "-u", block] empty)
-
---------------------------------------------------------------------------------------------------------------
-
-data LogLevel = DEBUG
+data LogLevel = TRACE | DEBUG
   deriving (Show)
 
 data Log = Note Text
@@ -82,118 +45,92 @@ data Log = Note Text
          | S3PinnedBlocks BlockSet
   deriving (Show)
 
-disp :: Log -> Text
-disp (Note t) = t
-disp l        = tshow l
+newtype Logger = Logger (LogLevel -> Log -> IO ())
 
-log :: MonadIO m => LogLevel -> Log -> m ()
-log lvl l = putStrLn (tshow lvl <> " " <> disp l)
+class HasLogger e where
+  loggerL :: Lens' e Logger
 
--- | All the pinned roots on the local IPFS node.
-ipfsPinnedBlocks ∷ HasConfig env => RIO env BlockSet
-ipfsPinnedBlocks = initialize (configL . cPinnedL) listPins
-                     where listPins =
-                             do log DEBUG (Note "Listing Pinned Blocks")
-                                roots  ← shellLines (inproc "ipfs" ["pin", "ls", "-q", "--type=recursive"] empty)
-                                direct ← shellLines (inproc "ipfs" ["pin", "ls", "-q", "--type=direct"] empty)
-                                let blockSet = setFromList (roots <> direct)
-                                log DEBUG (IpfsPinnedBlocks blockSet)
-                                pure (setFromList (roots <> direct))
+logIO :: Logger -> LogLevel -> Log -> IO ()
+logIO (Logger logger) lvl log = logger lvl log
 
--- | All the pinned roots on the local IPFS node.
-ipfsAllBlocks ∷ HasConfig env => RIO env BlockSet
-ipfsAllBlocks = initialize (configL . cPinnedL) listPins
-                  where listPins =
-                          do log DEBUG (Note "Listing all blocks on IPFS.")
-                             blocks ← shellLines (inproc "ipfs" ["pin", "ls", "-q", "--type=all"] empty)
-                             log DEBUG (Note "Finished")
-                             pure (setFromList blocks)
+log :: HasLogger e => LogLevel -> Log -> RIO e ()
+log lvl log = do logger <- view loggerL
+                 liftIO (logIO logger lvl log)
 
-looksLikeAnIpfsBlockHash :: Text -> Bool
-looksLikeAnIpfsBlockHash t = Text.take 2 t == "Qm"
+logNote :: HasLogger e => LogLevel -> Text -> RIO e ()
+logNote lvl note = log lvl (Note note)
 
--- | All the persisted roots on s3.
-s3PinnedBlocks ∷ HasConfig env => RIO env BlockSet
-s3PinnedBlocks = initialize (configL . cPersistedL) listPins
-                   where listPins =
-                           do log DEBUG (Note "Listing all blocks on S3.")
-                              bucket ← view (configL . cBucketL)
-                              let s3PinDir = "s3://" <> bucket <> "/pin/"
-                              result ← shellLines (inproc "/usr/bin/aws" ["s3", "ls", s3PinDir] empty)
-                              log DEBUG (Note "Finished")
-                              pure $ setFromList (filter looksLikeAnIpfsBlockHash result)
+traceNote :: HasLogger e => Text -> RIO e ()
+traceNote = logNote TRACE
 
--- | All the persisted roots on s3.
-s3AllBlocks ∷ HasConfig env => RIO env BlockSet
-s3AllBlocks = initialize (configL . cPersistedL) listPins
-                where listPins =
-                        do bucket ← view (configL . cBucketL)
-                           let s3BlockDir = ("s3://" <> bucket <> "/block/") :: Text
-                           log DEBUG (Note "Listing all blocks on S3.")
-                           log DEBUG (Note $ unwords ["/usr/bin/aws", "s3", "ls", s3BlockDir])
-                           result ← shellLines (inproc "/usr/bin/aws" ["s3", "ls", s3BlockDir] empty)
-                           log DEBUG (Note "Finished")
-                           pure $ setFromList (filter looksLikeAnIpfsBlockHash result)
+simpleLogger :: Logger
+simpleLogger = Logger (\lvl log → putStrLn (tshow lvl <> " " <> fmtLog log))
+                 where fmtLog :: Log -> Text
+                       fmtLog (Note t) = t
+                       fmtLog l        = tshow l
 
---------------------------------------------------------------------------------------------------------------
+-- Config ----------------------------------------------------------------------------------------------------
 
-blockPinnedIpfs, blockOnIpfs, blockPinnedS3, blockOnS3 :: HasConfig env => MultiHash -> RIO env Bool
+data Config = Config { cBucket :: Text }
 
-blockPinnedIpfs b = member b <$> ipfsPinnedBlocks
-blockOnIpfs b     = member b <$> ipfsAllBlocks
-blockPinnedS3 b   = member b <$> s3PinnedBlocks
-blockOnS3 b       = member b <$> s3AllBlocks
+makeFields ''Config
 
---------------------------------------------------------------------------------------------------------------
+class HasConfig e where
+  configL :: Lens' e Config
 
-persistBlock :: HasConfig env => Text -> RIO env ()
-persistBlock block =
-  do log DEBUG (Note $ "persist: " <> block)
-     unlessM (blockOnS3 block) $
-       withTmpFile block $ \tmp ->
-         do bucket ← view (configL . cBucketL)
-            let s3Url = "s3://" <> bucket <> "/block/" <> block
-            log DEBUG (Note $ unwords ["$ ipfs", "block", "get", block])
-            shell ("ipfs block get " <> block <> " >" <> tmp) empty
-            log DEBUG $ Note $ unwords ["$ aws", "s3", "cp", tmp, s3Url]
-            void $ proc "/usr/bin/aws" ["s3", "cp", tmp, s3Url] empty
+instance HasConfig Config where
+  configL = id
 
-restoreBlock :: HasConfig env => Text -> RIO env ()
-restoreBlock block =
-  do log DEBUG (Note $ "restore: " <> block)
-     unlessM (blockOnIpfs block) $
-       withTmpFile block $ \tmp ->
-         do bucket ← view (configL . cBucketL)
-            let s3Url = "s3://" <> bucket <> "/block/" <> block
-            log DEBUG $ Note ("Restoring: " <> block)
-            log DEBUG (Note $ unwords ["$ aws", "s3", "cp", s3Url, tmp])
-            proc "/usr/bin/aws" ["s3", "cp", s3Url, tmp] empty
-            log DEBUG $ Note ("$ ipfs block put <" <> tmp)
-            void $ shell ("ipfs block put <" <> tmp) empty
+-- Env -------------------------------------------------------------------------------------------------------
 
---------------------------------------------------------------------------------------------------------------
+data Env = Env { eLogger :: Logger
+               , eConfig :: Config
+               , eS3     :: BlockStore Env
+               , eIpfs   :: BlockStore Env
+               }
 
-s3pin :: HasConfig env => Text -> RIO env ()
-s3pin block =
-  do log DEBUG (Note $ "pin on s3: " <> block)
-     unlessM (blockPinnedS3 block) $
-       do bucket ← view (configL . cBucketL)
-          let pinUrl = "s3://" <> bucket <> "/pin/" <> block
-          writeFile (unpack block) (encodeUtf8 block)
-          proc "/usr/bin/aws" ["s3", "cp", block, pinUrl] empty
-          rm (fromString $ unpack block)
+makeFields ''Env
 
-ipfsPinBlock :: HasConfig env => Text -> RIO env ()
-ipfsPinBlock block =
-  do log DEBUG (Note $ "pin on ipfs: " <> block)
-     unlessM (blockPinnedIpfs block) $
-       void $ proc "ipfs" ["pin", "add", block] empty
+class (HasLogger e, HasConfig e) => HasEnv e where
+  envL :: Lens' e Env
+
+instance HasEnv Env where
+  envL = id
+
+instance HasLogger Env where
+  loggerL = lens eLogger (\x y -> x { eLogger = y })
+
+instance HasConfig Env where
+  configL = lens eConfig (\x y -> x { eConfig = y })
+
+--instance (HasLogger e, HasConfig e) => HasEnv e where
+-- envL :: Lens' e Env
+
+-- Utilities -------------------------------------------------------------------------------------------------
+
+withTmpFile :: Text -> (Text -> RIO e a) -> RIO e a
+withTmpFile block action = bracket (pure (block <> ".block")) (rm . fromString . unpack) action
+
+shellLines :: MonadIO m => Shell Line -> m [Text]
+shellLines sh = Sh.fold (fmap lineToText sh) Fold.list
+
+-- IPFS Utilities --------------------------------------------------------------------------------------------
+
+-- TODO Assumes this is already available in the local IPFS store.
+blockClosure :: MonadIO m => MultiHash -> m [MultiHash]
+blockClosure hash = shellLines (inproc "ipfs" ["refs", "-r", "-u", hash] empty)
+
+-- TODO Assumes this is already available in the local IPFS store.
+blockRefs :: MonadIO m => MultiHash -> m [MultiHash]
+blockRefs hash = shellLines (inproc "ipfs" ["refs", "-u", hash] empty)
 
 -- S3 Block Store --------------------------------------------------------------------------------------------
 
-s3BlockStore :: forall env. HasConfig env => BlockStore env
+s3BlockStore :: forall e. (HasLogger e, HasConfig e) => BlockStore e
 s3BlockStore =
-  BlockStore
+  let looksLikeAnIpfsBlockHash :: Text -> Bool
+      looksLikeAnIpfsBlockHash t = Text.take 2 t == "Qm"
+  in BlockStore
     { bsGet = \hash → do
          do s3Url ← do bucket ← view (configL . cBucketL)
                        pure ("s3://" <> bucket <> "/block/" <> hash)
@@ -202,146 +139,249 @@ s3BlockStore =
                 bytes ← readFile (unpack tmpfile)
                 pure Block{bData=bytes, bHash=hash}
 
-    , bsPut = \bytes → do
-          hash <- bHash <$> bsPut ipfsBlockStore bytes -- TODO Hash it ourselves
-
+    , bsPut = \Block{bHash,bData} → do
           s3Url ← do bucket ← view (configL . cBucketL)
-                     pure ("s3://" <> bucket <> "/block/" <> hash)
+                     pure ("s3://" <> bucket <> "/block/" <> bHash)
 
-          withTmpFile hash $ \tmpfile -> do
-              writeFile (unpack tmpfile) bytes
+          withTmpFile bHash $ \tmpfile -> do
+              writeFile (unpack tmpfile) bData
               void $ proc "/usr/bin/aws" ["s3", "cp", tmpfile, s3Url] empty
 
-          pure Block{bHash=hash, bData=bytes}
+          pure Block{bHash=bHash, bData=bData}
 
     , bsPin = \hash →
         withTmpFile hash $ \tmpfile -> do
             writeFile (unpack tmpfile) (encodeUtf8 hash)
             pinUrl ← do bucket <- view (configL . cBucketL)
                         pure ("s3://" <> bucket <> "/pin/" <> hash)
-            void $ proc "/usr/bin/aws" ["s3", "cp", hash, pinUrl] empty
+            void $ proc "/usr/bin/aws" ["s3", "cp", tmpfile, pinUrl] empty
+
+    , bsBlocks = do
+          s3BlockDir ← do bucket ← view (configL . cBucketL)
+                          pure ("s3://" <> bucket <> "/block/")
+          result ← shellLines ( empty
+                              & inproc "/usr/bin/aws" ["s3", "ls", s3BlockDir]
+                              & inshell "sed 's/^[^Q]*Qm/Qm/'"
+                              )
+          pure $ setFromList (filter looksLikeAnIpfsBlockHash result)
 
     , bsPins = do
           s3PinDir ← do bucket ← view (configL . cBucketL)
                         pure ("s3://" <> bucket <> "/pin/")
-          result ← shellLines (inproc "/usr/bin/aws" ["s3", "ls", s3PinDir] empty)
+          result ← shellLines ( empty
+                              & inproc "/usr/bin/aws" ["s3", "ls", s3PinDir]
+                              & inshell "sed 's/^[^Q]*Qm/Qm/'"
+                              )
           pure $ setFromList (filter looksLikeAnIpfsBlockHash result)
     }
 
 -- IPFS Block Store ------------------------------------------------------------------------------------------
 
-ipfsBlockStore :: BlockStore env
+ipfsBlockStore :: BlockStore e
 ipfsBlockStore = BlockStore {..}
   where
-    bsGet :: MultiHash -> RIO env Block
+    bsGet :: MultiHash -> RIO e Block
     bsGet hash =
-      withTmpFile hash $ \tmpfile -> do
-          shell ("ipfs block get " <> hash <> " >" <> tmpfile) empty
-          bs <- readFile (unpack tmpfile)
-          pure (Block hash bs) -- TODO Verify hash
+      withTmpFile hash $ \tmpfile ->
+        do shell ("ipfs block get " <> hash <> " >" <> tmpfile) empty
+           bs <- readFile (unpack tmpfile)
+           pure (Block hash bs) -- TODO Verify hash
 
-    bsPut :: ByteString -> RIO env Block
-    bsPut bytes =
-      withTmpFile "whateverthefuck" $ \tmpfile -> do
-          writeFile (unpack tmpfile) bytes
-          [hash] ← shellLines (inshell ("ipfs block put <" <> tmpfile) empty)
-          pure (Block { bData=bytes, bHash=hash })
+    bsPut :: Block -> RIO e Block
+    bsPut blk =
+      withTmpFile (bHash blk) $ \tmpfile ->
+        do writeFile (unpack tmpfile) (bData blk)
+           [hash] ← shellLines (inshell ("ipfs block put <" <> tmpfile) empty)
+           unless (hash == bHash blk) $
+             error $ unpack ("BLOCK HASH WAS WROOOOONG!\n" <>
+                             "We were expecting '" <> bHash blk <>
+                             "', but got got '" <> hash <> "' instead")
+           pure (Block { bData=bData blk, bHash=hash })
 
-    bsPin :: MultiHash -> RIO env ()
+    bsPin :: MultiHash -> RIO e ()
     bsPin hash = void $ proc "ipfs" ["pin", "add", hash] empty
 
-    bsPins :: RIO env (Set MultiHash)
-    bsPins = do
-        roots  ← shellLines (inproc "ipfs" ["pin", "ls", "-q", "--type=recursive"] empty)
-        direct ← shellLines (inproc "ipfs" ["pin", "ls", "-q", "--type=direct"] empty)
-        pure (setFromList (roots <> direct))
+    bsPins :: RIO e (Set MultiHash)
+    bsPins =
+      do roots  ← shellLines (inproc "ipfs" ["pin", "ls", "-q", "--type=recursive"] empty)
+         direct ← shellLines (inproc "ipfs" ["pin", "ls", "-q", "--type=direct"] empty)
+         pure (setFromList (roots <> direct))
 
--- Avoid duplicating work. If we add a block twice, then we already know it's there, for example. ------------
+    bsBlocks :: RIO e (Set MultiHash)
+    bsBlocks =
+      do setFromList <$> shellLines (inproc "ipfs" ["pin", "ls", "-q", "--type=all"] empty)
 
--- TODO
-memoized :: BlockStore env -> RIO env (BlockStore env)
-memoized x = pure x
+-- Trace the execution through a BlockStore ------------------------------------------------------------------
+
+tracedBS ∷ HasLogger e => Text → BlockStore e → BlockStore e
+tracedBS nm bs =
+  BlockStore
+    { bsGet    = \hash  → traceNote (nm <> ".bsGet(" <> hash <> ")") >> bsGet bs hash
+    , bsPut    = \blk   → traceNote (nm <> ".bsPut(...)")            >> bsPut bs blk
+    , bsPin    = \hash  → traceNote (nm <> ".bsPin(" <> hash <> ")") >> bsPin bs hash
+    , bsPins   =          traceNote (nm <> ".bsPins()")              >> bsPins bs
+    , bsBlocks =          traceNote (nm <> ".bsBlocks()")            >> bsBlocks bs
+    }
+
+-- Don't create blocks or pins that already exists. ----------------------------------------------------------
+
+cacheAction :: MonadIO m => IORef (Maybe a) -> m a -> m a
+cacheAction var action = liftIO (readIORef var) >>= \case
+                     Just val → pure val
+                     Nothing  → do val ← action
+                                   liftIO (writeIORef var (Just val))
+                                   pure val
+
+cacheBS ∷ ∀e. BlockStore e → IO (BlockStore e)
+cacheBS bs = do vAllPins        ← newIORef (Nothing ∷ Maybe BlockSet)
+                vAllBlocks      ← newIORef (Nothing ∷ Maybe BlockSet)
+                vUploadedBlocks ← newIORef (mempty ∷ BlockSet)
+                vPinnedBlocks   ← newIORef (mempty ∷ BlockSet)
+
+                let listPins = cacheAction vAllPins (bsPins bs)
+
+                    listBlocks :: RIO e BlockSet
+                    listBlocks = cacheAction vAllBlocks (bsBlocks bs)
+
+                    pinExists :: MultiHash → RIO e Bool
+                    pinExists hash = (member hash <$> liftIO (readIORef vPinnedBlocks)) >>= \case
+                                       True  → pure True
+                                       False → member hash <$> listPins
+
+                    blockExists :: MultiHash → RIO e Bool
+                    blockExists hash = (member hash <$> liftIO (readIORef vUploadedBlocks)) >>= \case
+                                         True  → pure True
+                                         False → member hash <$> listBlocks
+
+                    pinBlock hash = unlessM (pinExists hash) $
+                                      do bsPin bs hash
+                                         liftIO $ modifyIORef vPinnedBlocks (insertSet hash)
+
+                    putBlock blk =
+                      blockExists (bHash blk) >>=
+                        \case True  → pure blk
+                              False → do newBlk ← bsPut bs blk
+                                         liftIO $ modifyIORef vUploadedBlocks (insertSet (bHash blk))
+                                         pure newBlk
+
+                pure $ BlockStore
+                         { bsGet    = \hash → bsGet bs hash
+                         , bsPut    = putBlock
+                         , bsPin    = pinBlock
+                         , bsPins   = listPins
+                         , bsBlocks = listBlocks
+                         }
 
 -- Utilities for Manual Testing ------------------------------------------------------------------------------
 
-putGetTest :: BlockStore env -> Block -> RIO env Bool
+runApp :: RIO Env a -> IO a
+runApp action =
+  do env <- do cBucket <- pure "ipfs-archive-backups"
+               eConfig <- pure Config{..}
+               eLogger <- pure simpleLogger
+               eIpfs   <- tracedBS "ipfs" <$> cacheBS (tracedBS "[ipfs]" ipfsBlockStore)
+               eS3     <- tracedBS "s3"   <$> cacheBS (tracedBS "[s3]"   s3BlockStore)
+               pure Env{..}
+     runRIO env action
+
+putGetTest :: BlockStore e -> Block -> RIO e Bool
 putGetTest bs block1 = do
-  block2 <- bsPut bs (bData block1)
+  block2 <- bsPut bs block1
   block3 <- bsGet bs (bHash block2)
   pure (all (block1 ==) [block2, block3])
 
-pinTest :: BlockStore env -> MultiHash -> RIO env Bool
+pinTest :: BlockStore e -> MultiHash -> RIO e Bool
 pinTest bs hash = do
     bsPin bs hash
     pinSet <- bsPins bs
     pure (member hash pinSet)
 
-createFileBlock :: BlockStore env -> Text -> RIO env Block
+createFileBlock :: HasLogger e => BlockStore e -> Text -> RIO e Block
 createFileBlock bs txt = do
     writeFile ".tmptmp" (encodeUtf8 txt)
     [hash] <- shellLines (inproc "ipfs" ["add", "-Q", ".tmptmp"] empty)
     rm ".tmptmp"
-    bsGet bs hash
+    let ipfs = tracedBS "ipfs" ipfsBlockStore
+    newBlock <- bsGet ipfs hash
+    bsPut bs newBlock
 
-hackyTestRoutine txt = runApp $ do
-    let ipfs = ipfsBlockStore
-    traceM "createFileBlock ipfs"
-    blk <- createFileBlock ipfs txt
-    print blk
-    traceM "putGetTest ipfs"
-    putGetTest ipfs blk >>= print
-    traceM "pinTest ipfs"
-    pinTest ipfs (bHash blk) >>= print
+hackyTestRoutine txt =
+  do ipfs ← view (envL.eIpfsL)
+     traceNote "createFileBlock ipfs"
+     blk <- createFileBlock ipfs txt
+     traceNote (tshow blk)
+     traceNote "putGetTest ipfs"
+     putGetTest ipfs blk >>= traceNote.tshow
+     traceNote "pinTest ipfs"
+     pinTest ipfs (bHash blk) >>= traceNote.tshow
 
-    let s3 = ipfsBlockStore
-    traceM "createFileBlock s3"
-    blk <- createFileBlock s3 txt
-    print blk
-    traceM "putGetTest s3"
-    putGetTest s3 blk >>= print
-    traceM "pinTest s3"
-    pinTest s3 (bHash blk) >>= print
+     void (bsPins ipfs)
+     void (bsBlocks ipfs)
 
-    pure ()
+     s3 ← view (envL.eS3L)
+     traceNote "createFileBlock s3"
+     blk <- createFileBlock s3 txt
+     traceNote (tshow blk)
+     traceNote "putGetTest s3"
+     putGetTest s3 blk >>= traceNote.tshow
+     traceNote "pinTest s3"
+     pinTest s3 (bHash blk) >>= traceNote.tshow
+
+     void (bsPins s3)
+     void (bsBlocks s3)
+
+     pure ()
 
 -- Application-Level Logic -----------------------------------------------------------------------------------
 
+hasPin bs b   = member b <$> bsPins bs
+hasBlock bs b = member b <$> bsBlocks bs
+
+copyBlock :: BlockStore Env -> BlockStore Env -> MultiHash -> RIO Env ()
+copyBlock from to hash = void (bsGet from hash >>= bsPut to)
+
+persistBlock, restoreBlock :: MultiHash -> RIO Env ()
+persistBlock hash = do s3   ← view (envL . eS3L)
+                       ipfs ← view (envL . eIpfsL)
+                       copyBlock ipfs s3 hash
+
+restoreBlock hash = do s3   ← view (envL . eS3L)
+                       ipfs ← view (envL . eIpfsL)
+                       copyBlock s3 ipfs hash
+
+persistClosure :: Text -> RIO Env ()
 persistClosure block =
-  do log DEBUG (Note $ "persisting the closure of: " <> block)
+  do traceNote ("copy block from ipfs to s3: " <> block)
      persistBlock block
-     s3pin block
-     listBlockClosure block >>= traverse_ persistBlock
+     s3 ← view (envL . eS3L)
+     bsPin s3 block
+     blockClosure block >>= traverse_ persistBlock
 
-restoreClosure :: HasConfig env => Text -> RIO env ()
+restoreClosure :: Text -> RIO Env ()
 restoreClosure block =
-  do log DEBUG (Note $ "restoring the closure of: " <> block)
+  do traceNote ("copy block from s3 to ipfs: " <> block)
      restoreBlock block
-     listBlockRefs block >>= traverse_ restoreClosure
+     blockRefs block >>= traverse_ restoreClosure
 
-persistPinned :: HasConfig env => RIO env ()
-persistPinned = ipfsPinnedBlocks >>= traverse_ persistClosure
+persistPinned :: RIO Env ()
+persistPinned = do ipfs ← view (envL . eIpfsL)
+                   bsPins ipfs >>= traverse_ persistClosure
 
-restorePinned =
-  do s3AllBlocks    >>= traverse_ restoreBlock
-     s3PinnedBlocks >>= traverse_ ipfsPinBlock
+restorePinned :: RIO Env ()
+restorePinned = do s3   ← view (envL . eS3L)
+                   ipfs ← view (envL . eIpfsL)
+                   bsBlocks s3 >>= traverse_ restoreBlock
+                   bsPins s3   >>= traverse_ (bsPin ipfs)
 
 --------------------------------------------------------------------------------------------------------------
-
-runApp :: RIO Config a -> IO a
-runApp action =
-  do config <-
-       do cPinned    <- newTVarIO Nothing
-          cPersisted <- newTVarIO Nothing
-          cBucket    <- pure "ipfs-archive-backups"
-          pure (Config {..})
-     runRIO config action
 
 main :: IO ()
 main =
   runApp $
     liftIO getArgs >>= \case
-      "persist-all"   : [] → persistPinned
-      "restore-all"   : [] → restorePinned
+      ["persist-all"]      → persistPinned
+      ["restore-all"]      → restorePinned
+      ["test", withStr]    → hackyTestRoutine withStr
       "persist-tree"  : bs → for_ bs persistClosure
       "restore-tree"  : bs → for_ bs restoreClosure
       "persist-block" : bs → for_ bs persistClosure
