@@ -1,23 +1,28 @@
-    let ExtraDepTy = < git : { commit : Text, git : Text } | hackage : Text >
-
-in  let ExtraDep = constructors ExtraDepTy
-
-in  let opts =
-          { haskellPkgs   = [ "lab1010-1-hs"
-                            , "workdown"
-                            , "turkish"
-                            , "papers-on-ipfs"
-                            , "post-photo-to-tumblr"
-                            , "f-var"
-                            , "get-new-posts-on-subreddit"
-                            , "ipfs-s3-bridge"
-                            , "fatty-prelude"
-                            , "shell-conduit"
-                            , "rio"
-                            ]
+    let opts =
+          { buildDeps     = [ "dhall-text", "dhall", "cargo", "stack" ]
+          , haskellPkgs   =
+              [ "lab1010-1-hs"
+              , "workdown"
+              , "turkish"
+              , "papers-on-ipfs"
+              , "post-photo-to-tumblr"
+              , "f-var"
+              , "get-new-posts-on-subreddit"
+              , "ipfs-s3-bridge"
+              , "fatty-prelude"
+              , "shell-conduit"
+              , "rio"
+              , "multihash"
+              ]
+          , hsExtraDeps   =
+              [ "attoparsec-conduit-1.1.0"
+              , "reddit-0.2.2.2"
+              , "api-builder-0.14.0.0"
+              , "unliftio-0.2.4.0"
+              , "base58-bytestring-0.1.0"
+              ]
           , rustPkgs      = [ "lab1010-1-rs", "mutbst-rs", "mutlist-rs" ]
           , stackResolver = "lts-10.3"
-          , buildDeps     = [ "dhall-text", "dhall", "cargo", "stack" ]
           }
 
 in  let map = /ipfs/QmYmByX6W9srN4cwFCEL58KzAH937Es5qyhFnWHoWnYtVH/Prelude/List/map
@@ -35,12 +40,7 @@ in  { cargo =
         , workspace    = { members = mapText pkg opts.rustPkgs }
         }
     , stack =
-        { extra-deps =
-            [ ExtraDep.hackage "attoparsec-conduit-1.1.0"
-            , ExtraDep.hackage "reddit-0.2.2.2"
-            , ExtraDep.hackage "api-builder-0.14.0.0"
-            , ExtraDep.hackage "unliftio-0.2.4.0"
-            ]
+        { extra-deps = opts.hsExtraDeps
         , packages   = mapText pkg opts.haskellPkgs
         , resolver   = opts.stackResolver
         }
