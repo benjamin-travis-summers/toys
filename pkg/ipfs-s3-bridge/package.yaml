@@ -6,6 +6,8 @@ maintainer:          github@bsummers.me
 copyright:           2017 Benjamin Summers
 category:            Web
 
+ghc-options: -O2 -with-rtsopts=-N -threaded
+
 executable:
   source-dirs:      app
   main:             Main.hs

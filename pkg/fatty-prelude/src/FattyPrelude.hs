@@ -7,15 +7,20 @@ module FattyPrelude
     , module Turtle
     , module Control.Lens
     , module RIO
+    , module UnliftIO.Async
     , makeFields
     ) where
 
 import ClassyPrelude.Conduit
-  hiding (log, bracket, FilePath, (<.>), (</>))
+  hiding (log, bracket, FilePath, (<.>), (</>), Concurrently, async, runConcurrently, cancel, cancelWith,
+          asyncBound, asyncOn, asyncOnWithUnmask, asyncWithUnmask, concurrently, mapConcurrently, race, race_,
+          withAsync, withAsyncBound, withAsyncOn, withAsyncOnWithUnmask, withAsyncWithUnmask)
+
+import UnliftIO.Async
 
 import Turtle
   hiding (view, find, stripPrefix, sortOn, (<>), sort, sortBy, stderr, stdin, stdout,
-          fork, fold, Fold, contains, has, noneOf, strict)
+          fork, fold, Fold, contains, has, noneOf, strict, wait)
 
 import Control.Lens
   hiding (Index, (<.>), (<|), index, uncons, unsnoc, cons, snoc, lensRules, makeLenses, makeFields)

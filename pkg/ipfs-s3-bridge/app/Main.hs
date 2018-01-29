@@ -1,6 +1,6 @@
 {-# LANGUAGE StrictData #-}
 
--- TODO Testing
+-- TODO We're using threads now. Don't just catch the results of things, also track if they're running.
 
 module Main where
 
@@ -20,14 +20,14 @@ import qualified Control.Foldl               as Fold
 type MultiHash = Text
 type BlockSet = Set MultiHash
 
-data Block = Block { bHash :: !MultiHash
-                   , bData :: !ByteString
+data Block = Block { bHash :: MultiHash
+                   , bData :: ByteString
                    }
   deriving (Show, Eq)
 
 data BlockStore e = BlockStore { bsGet    :: MultiHash -> RIO e Block
                                , bsPut    :: Block     -> RIO e Block
-                               , bsPin    :: MultiHash  -> RIO e ()
+                               , bsPin    :: MultiHash -> RIO e ()
                                , bsPins   :: RIO e (Set MultiHash)
                                , bsBlocks :: RIO e (Set MultiHash)
                                }
@@ -68,6 +68,17 @@ simpleLogger = Logger (\lvl log → putStrLn (tshow lvl <> " " <> fmtLog log))
                  where fmtLog :: Log -> Text
                        fmtLog (Note t) = t
                        fmtLog l        = tshow l
+
+mkThreadedLogger :: IO Logger
+mkThreadedLogger = do
+  logChan ← newTChanIO
+
+  void $ async $ forever $ do (lvl, log) ← atomically (readTChan logChan)
+                              logIO simpleLogger lvl log
+
+  let queueLog lvl log = atomically (writeTChan logChan (lvl, log))
+
+  pure (Logger queueLog)
 
 -- Config ----------------------------------------------------------------------------------------------------
 
@@ -211,6 +222,14 @@ ipfsBlockStore = BlockStore {..}
     bsBlocks =
       do setFromList <$> shellLines (inproc "ipfs" ["pin", "ls", "-q", "--type=all"] empty)
 
+-- Dry run: don't actualy perform any of the mutations -------------------------------------------------------
+
+dryRunBS ∷ BlockStore e → BlockStore e
+dryRunBS bs =
+  bs { bsPut = \b → pure b
+     , bsPin = \_ → pure ()
+     }
+
 -- Trace the execution through a BlockStore ------------------------------------------------------------------
 
 tracedBS ∷ HasLogger e => Text → BlockStore e → BlockStore e
@@ -225,18 +244,18 @@ tracedBS nm bs =
 
 -- Don't create blocks or pins that already exists. ----------------------------------------------------------
 
-cacheAction :: MonadIO m => IORef (Maybe a) -> m a -> m a
-cacheAction var action = liftIO (readIORef var) >>= \case
+cacheAction :: MonadIO m => TVar (Maybe a) -> m a -> m a
+cacheAction var action = atomically (readTVar var) >>= \case
                      Just val → pure val
                      Nothing  → do val ← action
-                                   liftIO (writeIORef var (Just val))
+                                   atomically (writeTVar var (Just val))
                                    pure val
 
 cacheBS ∷ ∀e. BlockStore e → IO (BlockStore e)
-cacheBS bs = do vAllPins        ← newIORef (Nothing ∷ Maybe BlockSet)
-                vAllBlocks      ← newIORef (Nothing ∷ Maybe BlockSet)
-                vUploadedBlocks ← newIORef (mempty ∷ BlockSet)
-                vPinnedBlocks   ← newIORef (mempty ∷ BlockSet)
+cacheBS bs = do vAllPins        ← newTVarIO (Nothing ∷ Maybe BlockSet)
+                vAllBlocks      ← newTVarIO (Nothing ∷ Maybe BlockSet)
+                vUploadedBlocks ← newTVarIO (mempty ∷ BlockSet)
+                vPinnedBlocks   ← newTVarIO (mempty ∷ BlockSet)
 
                 let listPins = cacheAction vAllPins (bsPins bs)
 
@@ -244,24 +263,24 @@ cacheBS bs = do vAllPins        ← newIORef (Nothing ∷ Maybe BlockSet)
                     listBlocks = cacheAction vAllBlocks (bsBlocks bs)
 
                     pinExists :: MultiHash → RIO e Bool
-                    pinExists hash = (member hash <$> liftIO (readIORef vPinnedBlocks)) >>= \case
+                    pinExists hash = (member hash <$> atomically (readTVar vPinnedBlocks)) >>= \case
                                        True  → pure True
                                        False → member hash <$> listPins
 
                     blockExists :: MultiHash → RIO e Bool
-                    blockExists hash = (member hash <$> liftIO (readIORef vUploadedBlocks)) >>= \case
+                    blockExists hash = (member hash <$> atomically (readTVar vUploadedBlocks)) >>= \case
                                          True  → pure True
                                          False → member hash <$> listBlocks
 
                     pinBlock hash = unlessM (pinExists hash) $
                                       do bsPin bs hash
-                                         liftIO $ modifyIORef vPinnedBlocks (insertSet hash)
+                                         atomically $ modifyTVar vPinnedBlocks (insertSet hash)
 
                     putBlock blk =
                       blockExists (bHash blk) >>=
                         \case True  → pure blk
                               False → do newBlk ← bsPut bs blk
-                                         liftIO $ modifyIORef vUploadedBlocks (insertSet (bHash blk))
+                                         atomically $ modifyTVar vUploadedBlocks (insertSet (bHash blk))
                                          pure newBlk
 
                 pure $ BlockStore
@@ -278,9 +297,9 @@ runApp :: RIO Env a -> IO a
 runApp action =
   do env <- do cBucket <- pure "ipfs-archive-backups"
                eConfig <- pure Config{..}
-               eLogger <- pure simpleLogger
-               eIpfs   <- tracedBS "ipfs" <$> cacheBS (tracedBS "[ipfs]" ipfsBlockStore)
-               eS3     <- tracedBS "s3"   <$> cacheBS (tracedBS "[s3]"   s3BlockStore)
+               eLogger <- mkThreadedLogger
+               eIpfs   <- tracedBS "ipfs" <$> cacheBS (tracedBS "[ipfs]" (dryRunBS ipfsBlockStore))
+               eS3     <- tracedBS "s3"   <$> cacheBS (tracedBS "[s3]"   (dryRunBS s3BlockStore))
                pure Env{..}
      runRIO env action
 
@@ -373,6 +392,54 @@ restorePinned = do s3   ← view (envL . eS3L)
                    bsBlocks s3 >>= traverse_ restoreBlock
                    bsPins s3   >>= traverse_ (bsPin ipfs)
 
+pinBlocks ∷ BlockStore env → Set MultiHash → RIO env ()
+pinBlocks alice blocks = traverse_ (bsPin alice) blocks
+
+copyBlocks ∷ BlockStore Env → BlockStore Env → Set MultiHash → RIO Env ()
+copyBlocks from to blocks = traverse_ (copyBlock from to) blocks
+
+syncPins ∷ BlockStore Env → BlockStore Env → RIO Env ()
+syncPins alice bob =
+  do tAlicePins ← async (bsPins alice)
+     tBobPins   ← async (bsPins bob)
+     alicePins  ← wait tAlicePins
+     bobPins    ← wait tBobPins
+
+     let (-)        = difference
+         aliceNeeds = bobPins - alicePins
+         bobNeeds   = alicePins - bobPins
+
+     tPinOnAlice ← async (pinBlocks alice aliceNeeds)
+     tPinOnBob   ← async (pinBlocks bob bobNeeds)
+     void (wait tPinOnAlice)
+     void (wait tPinOnBob)
+
+syncBlocks ∷ BlockStore Env → BlockStore Env → RIO Env ()
+syncBlocks alice bob =
+  do tAliceBlocks ← async (bsBlocks alice)
+     tBobBlocks   ← async (bsBlocks bob)
+     aliceBlocks  ← wait tAliceBlocks
+     bobBlocks    ← wait tBobBlocks
+
+     let (-)        = difference
+         aliceNeeds = bobBlocks - aliceBlocks
+         bobNeeds   = aliceBlocks - bobBlocks
+
+     tCopyToAlice ← async (copyBlocks bob alice aliceNeeds)
+     tCopyToBob   ← async (copyBlocks alice bob bobNeeds)
+     wait tCopyToBob
+     wait tCopyToAlice
+
+syncBlockStores ∷ BlockStore Env → BlockStore Env → RIO Env ()
+syncBlockStores alice bob = do
+  syncBlocks alice bob
+  syncPins alice bob
+
+syncAll = do
+  s3   ← view (envL . eS3L)
+  ipfs ← view (envL . eIpfsL)
+  syncBlockStores ipfs s3
+
 --------------------------------------------------------------------------------------------------------------
 
 main :: IO ()
@@ -382,6 +449,7 @@ main =
       ["persist-all"]      → persistPinned
       ["restore-all"]      → restorePinned
       ["test", withStr]    → hackyTestRoutine withStr
+      ["sync"]             → syncAll
       "persist-tree"  : bs → for_ bs persistClosure
       "restore-tree"  : bs → for_ bs restoreClosure
       "persist-block" : bs → for_ bs persistClosure
