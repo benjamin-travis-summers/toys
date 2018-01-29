@@ -4,3 +4,4 @@ target
 Cargo.toml
 stack.yaml
 default.nix
+Cargo.lock
