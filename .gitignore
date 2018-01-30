@@ -5,3 +5,4 @@ Cargo.toml
 stack.yaml
 default.nix
 Cargo.lock
+npm-debug.log
