@@ -1,0 +1,55 @@
+#!/usr/bin/env haskellscript-10.0
+
+-- TODO Close the pomodoro early if the tmux session ends.
+-- TODO Find a way to open the tmux session in THIS terminal.
+
+import HaskellScript
+
+main = do
+    (pomoMins, pomoName) ← getArgs <&> \case [n,sess] → (fromIntegral (read n), sess)
+
+    startTime <- getCurrentTime
+
+    let endTime = addUTCTime (pomoMins * 60) startTime
+
+    outfile <- getHomeDirectory <&> (</> "POMODORO")
+
+    let loop curTime = do
+            let nextTick = addUTCTime 1 curTime
+
+            let timeLeft = endTime `diffUTCTime` curTime
+            let secsLeft = truncate timeLeft :: Integer
+            let secs     = secsLeft `mod` 60
+            let mins     = secsLeft `div` 60
+
+            writeFileUtf8 outfile $ pack (printf "%02d:%02d" mins secs)
+
+            when (secsLeft > 0) $ do
+                sleepUntil nextTick
+                loop nextTick
+
+    pomoDir <- getHomeDirectory <&> (</> ("pomos" </> unpack pomoName))
+    let workDir  = pomoDir </> "work"
+    let castFile = pomoDir </> "cast.json"
+    createDirectoryIfMissing True workDir
+
+    -- Start a tmux session in the working directory.
+    empty & shell ("tmux new-session -d -c '" <> pack workDir <> "' -s '" <> pomoName <> "'")
+
+    -- Tell the user how to join the session.
+    putStrLn "Please run this command to attach to the tmux session for this pomodoro:"
+    putStrLn ("asciinema rec '" <> pack castFile <> "' -c 'tmux attach -t \"" <> pomoName <> "\"'")
+
+    loop startTime
+
+    empty & shell ("tmux kill-session -t '" <> pomoName <> "'")
+    threadDelay 1000000 -- Race condition because asciinema needs to write the file.
+
+    hash <- lineToText <$> single (empty & inshell ("ipfs add -q -r " <> pack pomoDir)
+                                         & inshell "tail -n1")
+
+    let publish = "/Users/benjamin/proj/chains/publish.sh"
+
+    empty & shell (publish <> " " <> hash <> " '" <> pomoName <> "' pomodoro")
+
+    removeDirectoryRecursive pomoDir
