@@ -5,12 +5,18 @@
 
 import HaskellScript
 
+import qualified System.Process as Sys
+
+--------------------------------------------------------------------------------------------------------------
+
 main = do
-    (pomoMins, pomoTitle) ← getArgs <&> \case [n,sess] → (fromIntegral (read n), sess)
+    (pomoMins :: Int, pomoTitleText) ← getArgs <&> \case [n,sess] → (fromIntegral (read n), sess)
+
+    let pomoTitle = pomoTitleText <> " (" <> show pomoMins <> "m)"
 
     startTime <- getCurrentTime
 
-    let endTime = addUTCTime (pomoMins * 60) startTime
+    let endTime = addUTCTime (fromIntegral pomoMins * 60) startTime
 
     outfile <- getHomeDirectory <&> (</> "POMODORO")
 
@@ -31,8 +37,8 @@ main = do
     pomoId <- lineToText <$> single
               (empty &
                inshell ("echo '"
-                     <> pomoTitle
-                     <> "' | sed 's/ /-/g' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z-]//g'"))
+                     <> pomoTitleText
+                     <> "' | sed 's/ /-/g' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g'"))
 
     pomoDir <- getHomeDirectory <&> (</> ("pomos" </> unpack pomoId))
     let workDir  = pomoDir
@@ -41,15 +47,30 @@ main = do
 
     -- Start a tmux session in the working directory.
     empty & shell ("tmux new-session -d -c '" <> pack workDir <> "' -s '" <> pomoId <> "'")
+    empty & shell ("cp ~/proj/write/template/* '" <> pack workDir <> "'")
+    empty & shell ("echo '% " <> pomoTitle <> "' > '" <> pack(workDir </> "index.md") <> "'")
 
     -- Tell the user how to join the session.
     putStrLn "Please run this command to attach to the tmux session for this pomodoro:"
-    putStrLn ("asciinema rec '" <> pack castFile <> "' -t '" <> pomoTitle <> "' -c 'tmux attach -t \"" <> pomoId <> "\"'")
+    let cmd = "asciinema rec '"
+           <> pack castFile
+           <> "' -t '"
+           <> pomoTitleText
+           <> "' -c 'tmux attach -t \""
+           <> pomoId
+           <> "\"'"
 
-    loop startTime
+    let tmuxSession = do
+            putStrLn cmd
+            (_, _, _, h) <- Sys.createProcess (Sys.shell (unpack cmd))
+            _ <- Sys.waitForProcess h
+            pure ()
 
-    empty & shell ("tmux kill-session -t '" <> pomoId <> "'")
-    threadDelay 1000000 -- Race condition because asciinema needs to write the file.
+    let timeout = do
+            loop startTime
+            empty & shell ("tmux kill-session -t '" <> pomoId <> "'")
+
+    race_ tmuxSession timeout
 
     hash <- lineToText <$> single (empty & inshell ("ipfs add -q -r " <> pack pomoDir)
                                          & inshell "tail -n1")
