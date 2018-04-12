@@ -1,0 +1,21 @@
+packages:
+- pkg/lab1010-1-hs
+- pkg/workdown
+- pkg/turkish
+- pkg/papers-on-ipfs
+- pkg/post-photo-to-tumblr
+- pkg/f-var
+- pkg/get-new-posts-on-subreddit
+- pkg/ipfs-s3-bridge
+- pkg/copy-blocks
+- pkg/fatty-prelude
+- pkg/shell-conduit
+- pkg/rio
+- pkg/multihash
+extra-deps:
+- attoparsec-conduit-1.1.0
+- reddit-0.2.2.2
+- api-builder-0.14.0.0
+- unliftio-0.2.4.0
+- base58-bytestring-0.1.0
+resolver: lts-10.3

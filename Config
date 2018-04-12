@@ -9,6 +9,7 @@
               , "f-var"
               , "get-new-posts-on-subreddit"
               , "ipfs-s3-bridge"
+              , "copy-blocks"
               , "fatty-prelude"
               , "shell-conduit"
               , "rio"
@@ -25,9 +26,9 @@
           , stackResolver = "lts-10.3"
           }
 
-in  let map = /ipfs/QmYmByX6W9srN4cwFCEL58KzAH937Es5qyhFnWHoWnYtVH/Prelude/List/map
+in  let map = ./ipfs/QmYmByX6W9srN4cwFCEL58KzAH937Es5qyhFnWHoWnYtVH/Prelude/List/map
 
-in  let concatSep = /ipfs/QmYmByX6W9srN4cwFCEL58KzAH937Es5qyhFnWHoWnYtVH/Prelude/Text/concatSep
+in  let concatSep = ./ipfs/QmYmByX6W9srN4cwFCEL58KzAH937Es5qyhFnWHoWnYtVH/Prelude/Text/concatSep
 
 in  let mapText = map Text Text
 

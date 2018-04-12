@@ -1,4 +1,4 @@
-.PHONY: all clean cleanConfig config
+.PHONY: all clean cleanConfig config installdeps
 
 all: config
 	stack build
@@ -14,6 +14,9 @@ clean: cleanConfig
 	rm -rf .stack-work
 	rm -rf pkg/*/.stack-work
 	rm -f pkg/*/*.cabal
+
+installdeps:
+	nix-env -i `cat ./Deps`
 
 ##############################################################################################################
 
