@@ -47,7 +47,7 @@ main = do
 
     -- Start a tmux session in the working directory.
     empty & shell ("tmux new-session -d -c '" <> pack workDir <> "' -s '" <> pomoId <> "'")
-    empty & shell ("cp ~/proj/write/template/* '" <> pack workDir <> "'")
+    empty & shell ("cp ~/proj/toys/template/* '" <> pack workDir <> "'")
     empty & shell ("echo '% " <> pomoTitle <> "' > '" <> pack(workDir </> "index.md") <> "'")
 
     -- Tell the user how to join the session.
